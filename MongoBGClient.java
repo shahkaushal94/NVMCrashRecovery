@@ -1,4 +1,3 @@
-
 package mongoDB;
 
 import static com.mongodb.client.model.Filters.eq;
@@ -42,8 +41,11 @@ public class MongoBGClient extends DB {
 
 	MongoClient mongoClient;
 	private String ipAddress;
-	Jedis NVM=new Jedis("localhost");
-
+	Jedis NVM=null;
+	Jedis TSA=new Jedis("localhost");
+	boolean NvmIsUp=true;
+	
+	
 	public static final String MONGO_DB_NAME = "BG";
 	public static final String MONGO_USER_COLLECTION = "users";
 	public static final String KEY_FRIEND = "f";
@@ -106,6 +108,9 @@ public class MongoBGClient extends DB {
 		RedisHsetField.add("email");
 		RedisHsetField.add("tel");
 		
+		
+		if(NvmIsUp)
+		{
 		String value = NVM.get(Integer.toString(profileOwnerID));
 		
 		if(value==null)
@@ -209,6 +214,8 @@ public class MongoBGClient extends DB {
 		
 		
 		}
+	
+		
 		else
 		{
 //			System.out.println("Cache Hit");
@@ -242,6 +249,62 @@ public class MongoBGClient extends DB {
 //				}
 //			}
 		}
+		}
+		
+		
+		else
+		{
+			MongoCollection<Document> coll = this.mongoClient.getDatabase(MONGO_DB_NAME)
+					.getCollection(MONGO_USER_COLLECTION);
+
+		
+			
+			List<Bson> queries = new ArrayList<Bson>();
+			queries.add(new BasicDBObject("$match",
+					new BasicDBObject("_id", new BasicDBObject("$eq", String.valueOf(profileOwnerID)))));
+			
+			//System.out.println("Queries" + queries);
+			
+			
+			BasicDBObject obj = new BasicDBObject();
+			obj.put("f", new BasicDBObject("$size", "$f"));
+			obj.put("p", new BasicDBObject("$size", "$p"));
+			obj.put("username", 1);
+			obj.put("pw", 1);
+			obj.put("fname", 1);
+			obj.put("lname", 1);
+			obj.put("gender", 1);
+			obj.put("dob", 1);
+			obj.put("jdate", 1);
+			obj.put("ldate", 1);
+			obj.put("address", 1);
+			obj.put("email", 1);
+			obj.put("tel", 1);
+			BasicDBObject bobj = new BasicDBObject("$project", obj);
+			queries.add(bobj);
+
+			//System.out.println("Queries After bobj"+queries);
+			
+			Document userProfile = coll.aggregate(queries).first();
+			//System.out.println("UserProfile" +  userProfile);
+			result.put("userid", new ObjectByteIterator(String.valueOf(profileOwnerID).getBytes()));
+
+			//System.out.println("Result"+result);
+			
+			userProfile.forEach((k, v) -> {
+				if (!KEY_FRIEND.equals(k) && !KEY_PENDING.equals(k)) {
+					result.put(k, new ObjectByteIterator(String.valueOf(v).getBytes()));
+				}
+			});
+
+			
+			
+			result.put("friendcount", new ObjectByteIterator(String.valueOf(userProfile.get(KEY_FRIEND)).getBytes()));
+			if (requesterID == profileOwnerID) {
+				result.put("pendingcount", new ObjectByteIterator(String.valueOf(userProfile.get(KEY_PENDING)).getBytes()));
+			}
+	
+		}
 		
 		//System.out.println("RESULT" + result.toString());
 		//System.out.println("ENd");
@@ -252,6 +315,32 @@ public class MongoBGClient extends DB {
 	@Override
 	public void buildIndexes(Properties props) {
 		super.buildIndexes(props);
+	}
+	
+	synchronized public void TSA_to_NVM_Transfer()
+	{
+		for(String x:TSA.keys("*"))
+		{
+			ArrayList<String> current=(ArrayList<String>) TSA.lrange(x, 0, -1);
+			for(String command:current)
+			{
+				String listtocheck=command.substring(0,command.indexOf("_"));
+				String action=command.substring(command.indexOf("_")+1,command.lastIndexOf("_"));
+				String value=command.substring(command.lastIndexOf("_")+1);
+				String exists_val=NVM.get(x);
+				if(exists_val!=null)
+				{
+					if(action.equals("add"))
+					{
+						NVM.rpush(listtocheck+"_"+x, value);
+					}
+					else if(action.equals("remove"))
+					{
+						NVM.lrem(listtocheck+"_"+x,0, value);
+					}
+				}
+			}
+		}
 	}
 
 	@Override
@@ -264,7 +353,8 @@ public class MongoBGClient extends DB {
 		//String value=NVM.get("ListFriends_"+profileOwnerID);
 		
 		//---------------Changed By Kaushal on Nov 10---------------//
-		
+		if(NvmIsUp)
+		{
 		boolean callPstore = false;
 		List<String> values = NVM.lrange("f_"+profileOwnerID,0,-1);
 		//System.out.println(values + " LRANGE RESULT");
@@ -280,7 +370,7 @@ public class MongoBGClient extends DB {
 			{
 				String value = NVM.get(i);
 				//System.out.println("NVM GET VALUE:" + value);
-				if(value==null)
+				if(value==null || value.length()==0)
 				{
 					//System.out.println("Miss");
 					callPstore = true;
@@ -395,10 +485,65 @@ public class MongoBGClient extends DB {
 //					result.add(current);
 //				}
 //			}
-			
-			
-			
-			
+				
+		}
+		}
+		else
+		{
+			MongoCollection<Document> coll = this.mongoClient.getDatabase(MONGO_DB_NAME)
+					.getCollection(MONGO_USER_COLLECTION);
+
+			List<Bson> list = new ArrayList<>();
+			list.add(new BasicDBObject("$match",
+					new BasicDBObject("_id", new BasicDBObject("$eq", String.valueOf(profileOwnerID)))));
+			BasicDBList field = new BasicDBList();
+			field.add("$f");
+			field.add(0);
+			field.add(LIST_FRIENDS);
+			BasicDBObject bobj = new BasicDBObject("$project", new BasicDBObject("f", new BasicDBObject("$slice", field)));
+			list.add(bobj);
+			Document userProfile = coll.aggregate(list).first();
+			List<String> friends = userProfile.get(KEY_FRIEND, List.class);
+
+			List<Bson> queries = new ArrayList<Bson>();
+			queries.add(new BasicDBObject("$match", new BasicDBObject("_id", new BasicDBObject("$in", friends))));
+			BasicDBObject obj = new BasicDBObject();
+			obj.put("f", new BasicDBObject("$size", "$f"));
+			obj.put("username", 1);
+			obj.put("pw", 1);
+			obj.put("fname", 1);
+			obj.put("lname", 1);
+			obj.put("gender", 1);
+			obj.put("dob", 1);
+			obj.put("jdate", 1);
+			obj.put("ldate", 1);
+			obj.put("address", 1);
+			obj.put("email", 1);
+			obj.put("tel", 1);
+			bobj = new BasicDBObject("$project", obj);
+			queries.add(bobj);
+			queries.add(new BasicDBObject("$limit", LIST_FRIENDS));
+
+			MongoCursor<Document> friendsDocs = coll.aggregate(queries).iterator();
+
+			while (friendsDocs.hasNext()) {
+				Document doc = friendsDocs.next();
+				HashMap<String, ByteIterator> val = new HashMap<String, ByteIterator>();
+				val.put("userid", new ObjectByteIterator(doc.getString("_id").getBytes()));
+				
+				
+
+				doc.forEach((k, v) -> {
+					if (!KEY_FRIEND.equals(k) && !KEY_PENDING.equals(k)) {
+						val.put(k, new ObjectByteIterator(String.valueOf(v).getBytes()));
+					}
+				});
+
+				val.put("friendcount",
+						new ObjectByteIterator(String.valueOf(doc.get(KEY_FRIEND)).getBytes()));
+				result.add(val);
+			}
+			friendsDocs.close();
 		}
 		return 0;
 	}
@@ -504,13 +649,15 @@ public class MongoBGClient extends DB {
 		UpdateResult result = coll.updateOne(eq("_id", String.valueOf(inviterID)),
 				new BasicDBObject("$addToSet", new Document(KEY_FRIEND, String.valueOf(inviteeID))));
 		
-
-		//---------------Changed By Kaushal on Nov 10---------------//
-		
-		NVM.rpush("f_"+Integer.toString(inviterID), Integer.toString(inviteeID));
-		
-		//---------------Changed By Kaushal on Nov 10---------------//
-		
+		if(NvmIsUp)
+		{
+			NVM.rpush("f_"+Integer.toString(inviterID), Integer.toString(inviteeID));
+		}
+		else
+		{
+			TSA.rpush(Integer.toString(inviterID), "f_add_"+Integer.toString(inviteeID));
+		}
+	
 		
 		return 0;
 	}
@@ -606,10 +753,17 @@ public class MongoBGClient extends DB {
 		coll.updateOne(eq("_id", String.valueOf(inviteeID)), inviteeUpdate);
 		
 		//---------------Changed By Kaushal on Nov 10---------------//
-		
+		if(NvmIsUp)
+		{
 		NVM.rpush("f_"+Integer.toString(inviteeID), Integer.toString(inviterID));
 		
 		NVM.lrem("p_"+Integer.toString(inviteeID),0, Integer.toString(inviterID));
+		}
+		else
+		{
+			TSA.rpush(Integer.toString(inviteeID), "f_add_"+Integer.toString(inviterID));
+			TSA.rpush(Integer.toString(inviteeID),"p_remove_"+Integer.toString(inviterID));
+		}
 		
 		//---------------Changed By Kaushal on Nov 10---------------//
 		
@@ -634,7 +788,14 @@ public class MongoBGClient extends DB {
 				new BasicDBObject("$pull", new Document(KEY_PENDING, String.valueOf(inviterID))));
 		
 		//---------------Changed By Kaushal on Nov 10---------------//
-		NVM.lrem("p_"+Integer.toString(inviteeID), 0, Integer.toString(inviterID));
+		if(NvmIsUp)
+		{
+			NVM.lrem("p_"+Integer.toString(inviteeID), 0, Integer.toString(inviterID));
+		}
+		else
+		{
+			TSA.rpush(Integer.toString(inviteeID), "p_remove_"+Integer.toString(inviterID));
+		}
 		//---------------Changed By Kaushal on Nov 10---------------//
 		
 		return 0;
@@ -649,9 +810,15 @@ public class MongoBGClient extends DB {
 				new BasicDBObject("$addToSet", new Document(KEY_PENDING, String.valueOf(inviterID))));
 		
 		//---------------Changed By Kaushal on Nov 10---------------//
-		NVM.rpush("p_"+Integer.toString(inviteeID), Integer.toString(inviterID));
+		if(NvmIsUp)
+		{
+			NVM.rpush("p_"+Integer.toString(inviteeID), Integer.toString(inviterID));
+		}
 		//---------------Changed By Kaushal on Nov 10---------------//
-		
+		else
+		{
+			TSA.rpush(Integer.toString(inviteeID), "p_add_"+Integer.toString(inviterID));
+		}
 		
 		return 0;
 	}
@@ -697,8 +864,14 @@ public class MongoBGClient extends DB {
 				new BasicDBObject("$pull", new Document(KEY_FRIEND, String.valueOf(friendid2))));
 		
 		//---------------Changed By Kaushal on Nov 10---------------//
-		
-		NVM.lrem("f_"+Integer.toString(friendid1), 0, Integer.toString(friendid2));
+		if(NvmIsUp)
+		{
+			NVM.lrem("f_"+Integer.toString(friendid1), 0, Integer.toString(friendid2));
+		}
+		else
+		{
+			TSA.rpush(Integer.toString(friendid1), "f_remove_"+Integer.toString(friendid2));
+		}
 		
 		//---------------Changed By Kaushal on Nov 10---------------//
 		
@@ -713,8 +886,14 @@ public class MongoBGClient extends DB {
 				new BasicDBObject("$pull", new Document(KEY_FRIEND, String.valueOf(friendid1))));
 		
 		//---------------Changed By Kaushal on Nov 10---------------//
-		
-		NVM.lrem("f_"+Integer.toString(friendid2), 0, Integer.toString(friendid1));
+		if(NvmIsUp)
+		{
+			NVM.lrem("f_"+Integer.toString(friendid2), 0, Integer.toString(friendid1));
+		}
+		else
+		{
+			TSA.rpush(Integer.toString(friendid2), "f_remove_"+Integer.toString(friendid1));
+		}
 		
 		//---------------Changed By Kaushal on Nov 10---------------//
 		
