@@ -1,3 +1,4 @@
+
 package mongoDB;
 
 import static com.mongodb.client.model.Filters.eq;
@@ -147,8 +148,6 @@ public class MongoBGClient extends DB {
 
 		//System.out.println("Result"+result);
 		
-		
-		
 		userProfile.forEach((k, v) -> {
 			if (!KEY_FRIEND.equals(k) && !KEY_PENDING.equals(k)) {
 				result.put(k, new ObjectByteIterator(String.valueOf(v).getBytes()));
@@ -170,17 +169,38 @@ public class MongoBGClient extends DB {
 		
 		for(String x: StoredKeys)
 		{
-//			String hashSetName = "Cache" + Integer.toString(profileOwnerID);
-			if(profileOwnerID == requesterID && x.equals("p"))
+////			String hashSetName = "Cache" + Integer.toString(profileOwnerID);
+//			if(profileOwnerID == requesterID && x.equals("p"))
+//			{
+//				sb.append(x+ "="+result.get(x).toString());
+////				NVM.hset(hashSetName, x, result.get(x).toString());
+//			}
+//			else if (!x.equals("p"))
+//			{
+//				sb.append(x+ "="+result.get(x).toString());
+////				NVM.hset(hashSetName, x, result.get(x).toString());
+//			}
+			
+			
+			
+//---------------Changed By Kaushal on Nov 10---------------//			
+			if(x.equals("p"))
 			{
-				sb.append(x+ "="+result.get(x).toString());
-//				NVM.hset(hashSetName, x, result.get(x).toString());
+				NVM.set("p_"+Integer.toString(profileOwnerID), result.get(x).toString());
 			}
-			else if (!x.equals("p"))
+			else if(x.equals("f"))
 			{
-				sb.append(x+ "="+result.get(x).toString());
-//				NVM.hset(hashSetName, x, result.get(x).toString());
+				NVM.set("f_"+Integer.toString(profileOwnerID), result.get(x).toString());
 			}
+			else
+			{
+				sb.append(x+"="+result.get(x).toString());
+				
+			}
+
+//---------------Changed By Kaushal on Nov 10---------------//		
+			
+			
 			sb.append("USCVILLAGE");
 		}
 		NVM.set(Integer.toString(profileOwnerID),sb.toString());
@@ -238,8 +258,55 @@ public class MongoBGClient extends DB {
 	public int listFriends(int requesterID, int profileOwnerID, Set<String> fields,
 			Vector<HashMap<String, ByteIterator>> result, boolean insertImage, boolean testMode) {
 		
-		String value=NVM.get("ListFriends_"+profileOwnerID);
-		if(value==null)
+		
+		//NVM.flushDB();
+		
+		//String value=NVM.get("ListFriends_"+profileOwnerID);
+		
+		//---------------Changed By Kaushal on Nov 10---------------//
+		
+		boolean callPstore = false;
+		List<String> values = NVM.lrange("f_"+profileOwnerID,0,-1);
+		//System.out.println(values + " LRANGE RESULT");
+		if(values.size()==0)
+		{
+			//System.out.println("Miss");
+			callPstore = true;
+		}
+		else
+		{
+			int flag = 0;
+			for(String i: values)
+			{
+				String value = NVM.get(i);
+				//System.out.println("NVM GET VALUE:" + value);
+				if(value==null)
+				{
+					//System.out.println("Miss");
+					callPstore = true;
+					flag =1;
+					break;
+				}
+				value = value.substring(1, value.length()-1);    
+				String[] keyValuePairs = value.split("USCVILLAGE");  
+				HashMap<String, ByteIterator> oneFriendsDoc = new HashMap<String, ByteIterator>();	
+				for(String pair : keyValuePairs)      
+				{
+				    String[] entry = pair.split("=");                   
+				    oneFriendsDoc.put(entry[0].trim(), new ObjectByteIterator(String.valueOf(entry[1].trim()).getBytes()));         
+				}
+				
+				result.add(oneFriendsDoc);
+				
+			}
+			if(flag==0)
+			System.out.println("List friend Cache Hit for Profile Owner ID" + profileOwnerID + ": friends" + values );
+			
+		}
+		//---------------Changed By Kaushal on Nov 10---------------//
+		
+		
+		if(callPstore)
 		{
 		MongoCollection<Document> coll = this.mongoClient.getDatabase(MONGO_DB_NAME)
 				.getCollection(MONGO_USER_COLLECTION);
@@ -285,6 +352,8 @@ public class MongoBGClient extends DB {
 			Document doc = friendsDocs.next();
 			HashMap<String, ByteIterator> val = new HashMap<String, ByteIterator>();
 			val.put("userid", new ObjectByteIterator(doc.getString("_id").getBytes()));
+			
+			NVM.rpush("f_"+Integer.toString(profileOwnerID),doc.getString("_id") );
 			sbtemp.append("userid"+CONSTANT_USC_VILLAGE_INSIDE_HASHMAP+new ObjectByteIterator(doc.getString("_id").getBytes()).toString());
 
 			doc.forEach((k, v) -> {
@@ -301,28 +370,35 @@ public class MongoBGClient extends DB {
 			sbtemp.append(CONSTANT_USC_MONGO_INSIDE_VECTOR);
 			result.add(val);
 		}
-		NVM.set("ListFriends_"+(profileOwnerID), sbtemp.toString());
+		
+		NVM.set(Integer.toString(profileOwnerID), sbtemp.toString());
+		
+		
 		
 		friendsDocs.close();
 		}
 		
 		else
 		{
-			String CONSTANT_USC_VILLAGE_INSIDE_HASHMAP="USC_VILLAGE";
-			String CONSTANT_USC_MONGO_INSIDE_VECTOR="USC_MONGO_VILLAGE";
+//			String CONSTANT_USC_VILLAGE_INSIDE_HASHMAP="USC_VILLAGE";
+//			String CONSTANT_USC_MONGO_INSIDE_VECTOR="USC_MONGO_VILLAGE";
+//			
+//			String hashmaps[]=value.split(CONSTANT_USC_MONGO_INSIDE_VECTOR);
+//			HashMap<String,ByteIterator> current=new HashMap<>();
+//			if(current.size()!=0)
+//			{
+//				for(String hashmap:hashmaps)
+//				{	 
+//					System.out.println("hashmap "+hashmap);
+//				    String[] entry = hashmap.split(CONSTANT_USC_VILLAGE_INSIDE_HASHMAP);                   
+//				    current.put(entry[0].trim(), new ObjectByteIterator(String.valueOf(entry[1].trim()).getBytes()));  
+//					result.add(current);
+//				}
+//			}
 			
-			String hashmaps[]=value.split(CONSTANT_USC_MONGO_INSIDE_VECTOR);
-			HashMap<String,ByteIterator> current=new HashMap<>();
-			if(current.size()!=0)
-			{
-				for(String hashmap:hashmaps)
-				{	 
-					System.out.println("hashmap "+hashmap);
-				    String[] entry = hashmap.split(CONSTANT_USC_VILLAGE_INSIDE_HASHMAP);                   
-				    current.put(entry[0].trim(), new ObjectByteIterator(String.valueOf(entry[1].trim()).getBytes()));  
-					result.add(current);
-				}
-			}
+			
+			
+			
 		}
 		return 0;
 	}
@@ -427,6 +503,15 @@ public class MongoBGClient extends DB {
 
 		UpdateResult result = coll.updateOne(eq("_id", String.valueOf(inviterID)),
 				new BasicDBObject("$addToSet", new Document(KEY_FRIEND, String.valueOf(inviteeID))));
+		
+
+		//---------------Changed By Kaushal on Nov 10---------------//
+		
+		NVM.rpush("f_"+Integer.toString(inviterID), Integer.toString(inviteeID));
+		
+		//---------------Changed By Kaushal on Nov 10---------------//
+		
+		
 		return 0;
 	}
 
@@ -519,6 +604,18 @@ public class MongoBGClient extends DB {
 		inviteeUpdate.put("$addToSet", new Document(KEY_FRIEND, String.valueOf(inviterID)));
 		inviteeUpdate.put("$pull", new Document(KEY_PENDING, String.valueOf(inviterID)));
 		coll.updateOne(eq("_id", String.valueOf(inviteeID)), inviteeUpdate);
+		
+		//---------------Changed By Kaushal on Nov 10---------------//
+		
+		NVM.rpush("f_"+Integer.toString(inviteeID), Integer.toString(inviterID));
+		
+		NVM.lrem("p_"+Integer.toString(inviteeID),0, Integer.toString(inviterID));
+		
+		//---------------Changed By Kaushal on Nov 10---------------//
+		
+		
+		
+		
 		return 0;
 	}
 
@@ -535,6 +632,11 @@ public class MongoBGClient extends DB {
 				.getCollection(MONGO_USER_COLLECTION);
 		coll.updateOne(eq("_id", String.valueOf(inviteeID)),
 				new BasicDBObject("$pull", new Document(KEY_PENDING, String.valueOf(inviterID))));
+		
+		//---------------Changed By Kaushal on Nov 10---------------//
+		NVM.lrem("p_"+Integer.toString(inviteeID), 0, Integer.toString(inviterID));
+		//---------------Changed By Kaushal on Nov 10---------------//
+		
 		return 0;
 	}
 
@@ -545,6 +647,12 @@ public class MongoBGClient extends DB {
 
 		coll.updateOne(eq("_id", String.valueOf(inviteeID)),
 				new BasicDBObject("$addToSet", new Document(KEY_PENDING, String.valueOf(inviterID))));
+		
+		//---------------Changed By Kaushal on Nov 10---------------//
+		NVM.rpush("p_"+Integer.toString(inviteeID), Integer.toString(inviterID));
+		//---------------Changed By Kaushal on Nov 10---------------//
+		
+		
 		return 0;
 	}
 
@@ -587,6 +695,14 @@ public class MongoBGClient extends DB {
 
 		coll.updateOne(eq("_id", String.valueOf(friendid1)),
 				new BasicDBObject("$pull", new Document(KEY_FRIEND, String.valueOf(friendid2))));
+		
+		//---------------Changed By Kaushal on Nov 10---------------//
+		
+		NVM.lrem("f_"+Integer.toString(friendid1), 0, Integer.toString(friendid2));
+		
+		//---------------Changed By Kaushal on Nov 10---------------//
+		
+		
 		return 0;
 	}
 
@@ -595,6 +711,14 @@ public class MongoBGClient extends DB {
 				.getCollection(MONGO_USER_COLLECTION);
 		coll.updateOne(eq("_id", String.valueOf(friendid2)),
 				new BasicDBObject("$pull", new Document(KEY_FRIEND, String.valueOf(friendid1))));
+		
+		//---------------Changed By Kaushal on Nov 10---------------//
+		
+		NVM.lrem("f_"+Integer.toString(friendid2), 0, Integer.toString(friendid1));
+		
+		//---------------Changed By Kaushal on Nov 10---------------//
+		
+		
 		return 0;
 	}
 
