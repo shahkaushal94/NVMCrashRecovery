@@ -7,7 +7,6 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.Vector;
@@ -41,9 +40,9 @@ public class MongoBGClient extends DB {
 
 	MongoClient mongoClient;
 	private String ipAddress;
-	Jedis NVM=null;
-	Jedis TSA=new Jedis("localhost");
-	boolean NvmIsUp=true;
+	Jedis NVM=new Jedis("localhost",6380);
+	Jedis TSA=new Jedis("localhost",6379);
+	boolean NvmIsUp=false;
 	
 	
 	public static final String MONGO_DB_NAME = "BG";
@@ -319,9 +318,11 @@ public class MongoBGClient extends DB {
 	
 	synchronized public void TSA_to_NVM_Transfer()
 	{
+		System.out.println("STARTED"+System.nanoTime());
 		for(String x:TSA.keys("*"))
 		{
 			ArrayList<String> current=(ArrayList<String>) TSA.lrange(x, 0, -1);
+			System.out.println("arraylist "+current.toString());
 			for(String command:current)
 			{
 				String listtocheck=command.substring(0,command.indexOf("_"));
@@ -341,6 +342,8 @@ public class MongoBGClient extends DB {
 				}
 			}
 		}
+		System.out.println("FINSIHED"+System.nanoTime());
+		TSA.flushDB();
 	}
 
 	@Override
@@ -564,6 +567,7 @@ public class MongoBGClient extends DB {
 
 	@Override
 	public boolean init() throws DBException {
+		TSA_to_NVM_Transfer();
 		System.out.println("###init");
 		if (getProperties().getProperty(KEY_MONGO_DB_IP) != null) {
 			this.ipAddress = getProperties().getProperty(KEY_MONGO_DB_IP);
@@ -920,7 +924,7 @@ public class MongoBGClient extends DB {
 		stats.put("avgpendingperuser", String.valueOf(coll.find().first().get(KEY_PENDING, List.class).size()));
 		return stats;
 	}
-
+	
 	@Override
 	public int CreateFriendship(int friendid1, int friendid2) {
 		createFriendship.compareAndSet(false, true);
