@@ -42,7 +42,7 @@ public class MongoBGClient extends DB {
 	private String ipAddress;
 	Jedis NVM=new Jedis("localhost",6380);
 	Jedis TSA=new Jedis("localhost",6379);
-	static volatile boolean NvmIsUp=true;
+	static volatile int NvmIsUp=1;
 	static volatile AtomicBoolean failedmode=new AtomicBoolean(false);
 	boolean NVMinRecovery=false;
 	static AtomicBoolean first_time=new AtomicBoolean(true);
