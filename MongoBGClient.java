@@ -1044,17 +1044,24 @@ public class MongoBGClient extends DB {
 }
 
 
-class Basic implements Runnable
-{
-	AtomicBoolean failedmode;
+class Basic2 implements Runnable
+{	
 	Jedis NVM;
 	Jedis TSA;
 	
-	public Basic(AtomicBoolean failedmode) {
-		this.failedmode = failedmode;
+	public Basic2() {
 		 NVM=new Jedis("localhost",6380);
 		 TSA=new Jedis("localhost",6379);
 	}
+
+	@Override
+	public void run() {
+		// TODO Auto-generated method stub
+		
+		TSA_to_NVM_Transfer();
+		
+	}
+	
 	
 	public void TSA_to_NVM_Transfer()
 	{
@@ -1085,6 +1092,23 @@ class Basic implements Runnable
 		TSA.flushDB();
 	}
 	
+	
+}
+
+
+
+class Basic implements Runnable
+{
+	AtomicBoolean failedmode;
+	Jedis NVM;
+	Jedis TSA;
+	
+	public Basic(AtomicBoolean failedmode) {
+		this.failedmode = failedmode;
+		 NVM=new Jedis("localhost",6380);
+		 TSA=new Jedis("localhost",6379);
+	}
+
 	public void threadsection(int x,int y) throws InterruptedException
 	{
 		if(failedmode.get()==false)
@@ -1096,7 +1120,17 @@ class Basic implements Runnable
 			System.out.println("NVM IS DOWN.");
 			Thread.sleep(y*1000);
 			MongoBGClient.NvmIsUp=3;
-			TSA_to_NVM_Transfer();
+			
+			
+			Basic2 b2 = new Basic2();
+			Thread x1 = new Thread(b2);
+			Thread x2 = new Thread(b2);
+			
+			x1.start();
+			x2.start();
+			
+			
+			//TSA_to_NVM_Transfer();
 			System.out.println("TRANSFER FINISHED");
 			MongoBGClient.NvmIsUp=1;
 			System.out.println("NORMAL MODE AGAIN");
