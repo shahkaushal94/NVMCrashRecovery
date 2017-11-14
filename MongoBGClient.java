@@ -544,7 +544,8 @@ public class MongoBGClient extends DB {
 	@Override
 	public boolean init() throws DBException {
 		Properties p=new Properties();
-		
+		System.out.println(p.getProperty("maxexecutiontime"));
+		System.out.println(p.getProperty("failedmodeduration"));
 		
 		synchronized(this) {
 			if(first_time.get()==true)
@@ -560,8 +561,9 @@ public class MongoBGClient extends DB {
 				first_time.set(false);
 			}
 		}
-		int x=10;
-		int y=20;
+//		
+//		int x=10;
+//		int y=20;
 		try{
 		//threadsection(b,x,y);
 		}catch(Exception e)
