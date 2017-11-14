@@ -42,7 +42,10 @@ public class MongoBGClient extends DB {
 	private String ipAddress;
 	Jedis NVM=new Jedis("localhost",6380);
 	Jedis TSA=new Jedis("localhost",6379);
-	boolean NvmIsUp=false;
+	static volatile boolean NvmIsUp=true;
+	static volatile AtomicBoolean failedmode=new AtomicBoolean(false);
+	boolean NVMinRecovery=false;
+	static AtomicBoolean first_time=new AtomicBoolean(true);
 	
 	
 	public static final String MONGO_DB_NAME = "BG";
@@ -315,36 +318,6 @@ public class MongoBGClient extends DB {
 	public void buildIndexes(Properties props) {
 		super.buildIndexes(props);
 	}
-	
-	synchronized public void TSA_to_NVM_Transfer()
-	{
-		System.out.println("STARTED"+System.nanoTime());
-		for(String x:TSA.keys("*"))
-		{
-			ArrayList<String> current=(ArrayList<String>) TSA.lrange(x, 0, -1);
-			System.out.println("arraylist "+current.toString());
-			for(String command:current)
-			{
-				String listtocheck=command.substring(0,command.indexOf("_"));
-				String action=command.substring(command.indexOf("_")+1,command.lastIndexOf("_"));
-				String value=command.substring(command.lastIndexOf("_")+1);
-				String exists_val=NVM.get(x);
-				if(exists_val!=null)
-				{
-					if(action.equals("add"))
-					{
-						NVM.rpush(listtocheck+"_"+x, value);
-					}
-					else if(action.equals("remove"))
-					{
-						NVM.lrem(listtocheck+"_"+x,0, value);
-					}
-				}
-			}
-		}
-		System.out.println("FINSIHED"+System.nanoTime());
-		TSA.flushDB();
-	}
 
 	@Override
 	public int listFriends(int requesterID, int profileOwnerID, Set<String> fields,
@@ -359,7 +332,7 @@ public class MongoBGClient extends DB {
 		if(NvmIsUp)
 		{
 		boolean callPstore = false;
-		List<String> values = NVM.lrange("f_"+profileOwnerID,0,-1);
+		HashSet<String> values = (HashSet<String>) NVM.smembers("f_"+profileOwnerID);
 		//System.out.println(values + " LRANGE RESULT");
 		if(values.size()==0)
 		{
@@ -392,83 +365,85 @@ public class MongoBGClient extends DB {
 				result.add(oneFriendsDoc);
 				
 			}
-			if(flag==0)
-			System.out.println("List friend Cache Hit for Profile Owner ID" + profileOwnerID + ": friends" + values );
+//			if(flag==0)
+//			System.out.println("List friend Cache Hit for Profile Owner ID" + profileOwnerID + ": friends" + values );
 			
 		}
-		//---------------Changed By Kaushal on Nov 10---------------//
 		
 		
 		if(callPstore)
 		{
-		MongoCollection<Document> coll = this.mongoClient.getDatabase(MONGO_DB_NAME)
-				.getCollection(MONGO_USER_COLLECTION);
-
-		List<Bson> list = new ArrayList<>();
-		list.add(new BasicDBObject("$match",
-				new BasicDBObject("_id", new BasicDBObject("$eq", String.valueOf(profileOwnerID)))));
-		BasicDBList field = new BasicDBList();
-		field.add("$f");
-		field.add(0);
-		field.add(LIST_FRIENDS);
-		BasicDBObject bobj = new BasicDBObject("$project", new BasicDBObject("f", new BasicDBObject("$slice", field)));
-		list.add(bobj);
-		Document userProfile = coll.aggregate(list).first();
-		List<String> friends = userProfile.get(KEY_FRIEND, List.class);
-
-		List<Bson> queries = new ArrayList<Bson>();
-		queries.add(new BasicDBObject("$match", new BasicDBObject("_id", new BasicDBObject("$in", friends))));
-		BasicDBObject obj = new BasicDBObject();
-		obj.put("f", new BasicDBObject("$size", "$f"));
-		obj.put("username", 1);
-		obj.put("pw", 1);
-		obj.put("fname", 1);
-		obj.put("lname", 1);
-		obj.put("gender", 1);
-		obj.put("dob", 1);
-		obj.put("jdate", 1);
-		obj.put("ldate", 1);
-		obj.put("address", 1);
-		obj.put("email", 1);
-		obj.put("tel", 1);
-		bobj = new BasicDBObject("$project", obj);
-		queries.add(bobj);
-		queries.add(new BasicDBObject("$limit", LIST_FRIENDS));
-
-		MongoCursor<Document> friendsDocs = coll.aggregate(queries).iterator();
-		
-		String CONSTANT_USC_VILLAGE_INSIDE_HASHMAP="USC_VILLAGE";
-		String CONSTANT_USC_MONGO_INSIDE_VECTOR="USC_MONGO_VILLAGE";
-		
-		StringBuilder sbtemp=new StringBuilder();
-		while (friendsDocs.hasNext()) {
-			Document doc = friendsDocs.next();
-			HashMap<String, ByteIterator> val = new HashMap<String, ByteIterator>();
-			val.put("userid", new ObjectByteIterator(doc.getString("_id").getBytes()));
+			result.removeAllElements();
+			MongoCollection<Document> coll = this.mongoClient.getDatabase(MONGO_DB_NAME)
+					.getCollection(MONGO_USER_COLLECTION);
+	
+			List<Bson> list = new ArrayList<>();
+			list.add(new BasicDBObject("$match",
+					new BasicDBObject("_id", new BasicDBObject("$eq", String.valueOf(profileOwnerID)))));
+			BasicDBList field = new BasicDBList();
+			field.add("$f");
+			field.add(0);
+			field.add(LIST_FRIENDS);
+			BasicDBObject bobj = new BasicDBObject("$project", new BasicDBObject("f", new BasicDBObject("$slice", field)));
+			list.add(bobj);
+			Document userProfile = coll.aggregate(list).first();
+			List<String> friends = userProfile.get(KEY_FRIEND, List.class);
+	
+			List<Bson> queries = new ArrayList<Bson>();
+			queries.add(new BasicDBObject("$match", new BasicDBObject("_id", new BasicDBObject("$in", friends))));
+			BasicDBObject obj = new BasicDBObject();
+			obj.put("f", new BasicDBObject("$size", "$f"));
+			obj.put("username", 1);
+			obj.put("pw", 1);
+			obj.put("fname", 1);
+			obj.put("lname", 1);
+			obj.put("gender", 1);
+			obj.put("dob", 1);
+			obj.put("jdate", 1);
+			obj.put("ldate", 1);
+			obj.put("address", 1);
+			obj.put("email", 1);
+			obj.put("tel", 1);
+			bobj = new BasicDBObject("$project", obj);
+			queries.add(bobj);
+			queries.add(new BasicDBObject("$limit", LIST_FRIENDS));
+	
+			MongoCursor<Document> friendsDocs = coll.aggregate(queries).iterator();
 			
-			NVM.rpush("f_"+Integer.toString(profileOwnerID),doc.getString("_id") );
-			sbtemp.append("userid"+CONSTANT_USC_VILLAGE_INSIDE_HASHMAP+new ObjectByteIterator(doc.getString("_id").getBytes()).toString());
-
-			doc.forEach((k, v) -> {
-				if (!KEY_FRIEND.equals(k) && !KEY_PENDING.equals(k)) {
-					val.put(k, new ObjectByteIterator(String.valueOf(v).getBytes()));
-					sbtemp.append(k+CONSTANT_USC_VILLAGE_INSIDE_HASHMAP+new ObjectByteIterator(String.valueOf(v).getBytes()).toString());
-				}
-			});
-
-			val.put("friendcount",
-					new ObjectByteIterator(String.valueOf(doc.get(KEY_FRIEND)).getBytes()));
+			String CONSTANT_USC_VILLAGE_INSIDE_HASHMAP="USC_VILLAGE";
+			String CONSTANT_USC_MONGO_INSIDE_VECTOR="USC_MONGO_VILLAGE";
 			
-			sbtemp.append("friendcount"+CONSTANT_USC_VILLAGE_INSIDE_HASHMAP+String.valueOf(doc.get(KEY_FRIEND)));
-			sbtemp.append(CONSTANT_USC_MONGO_INSIDE_VECTOR);
-			result.add(val);
-		}
-		
-		NVM.set(Integer.toString(profileOwnerID), sbtemp.toString());
-		
-		
-		
-		friendsDocs.close();
+			
+			while (friendsDocs.hasNext()) {
+				StringBuilder sbtemp=new StringBuilder();
+				Document doc = friendsDocs.next();
+				HashMap<String, ByteIterator> val = new HashMap<String, ByteIterator>();
+				val.put("userid", new ObjectByteIterator(doc.getString("_id").getBytes()));
+				
+				NVM.sadd("f_"+Integer.toString(profileOwnerID),doc.getString("_id") );
+				sbtemp.append("userid"+CONSTANT_USC_VILLAGE_INSIDE_HASHMAP+new ObjectByteIterator(doc.getString("_id").getBytes()).toString());
+	
+				doc.forEach((k, v) -> {
+					if (!KEY_FRIEND.equals(k) && !KEY_PENDING.equals(k)) {
+						val.put(k, new ObjectByteIterator(String.valueOf(v).getBytes()));
+						sbtemp.append(k+CONSTANT_USC_VILLAGE_INSIDE_HASHMAP+new ObjectByteIterator(String.valueOf(v).getBytes()).toString());
+					}
+				});
+				
+				val.put("friendcount",
+						new ObjectByteIterator(String.valueOf(doc.get(KEY_FRIEND)).getBytes()));
+				
+				sbtemp.append("friendcount"+CONSTANT_USC_VILLAGE_INSIDE_HASHMAP+String.valueOf(doc.get(KEY_FRIEND)));
+				sbtemp.append(CONSTANT_USC_MONGO_INSIDE_VECTOR);
+				NVM.set(doc.getString("_id") , sbtemp.toString());
+				result.add(val);
+			}
+			
+//			NVM.set(Integer.toString(profileOwnerID), sbtemp.toString());
+			
+			
+			
+			friendsDocs.close();
 		}
 		
 		else
@@ -564,11 +539,37 @@ public class MongoBGClient extends DB {
 	}
 
 	boolean journaled = false;
-
+	
+	
 	@Override
 	public boolean init() throws DBException {
-		TSA_to_NVM_Transfer();
-		System.out.println("###init");
+		Properties p=new Properties();
+		
+		
+		synchronized(this) {
+			if(first_time.get()==true)
+			{
+				Basic b=new Basic(failedmode);
+//				System.out.println("INIT BLOCK SYNCHR");
+//				try{
+//				threadsection(b,10,20);
+//				System.out.println("INIT BLOCK SYNCHR FINSIHED");
+//				}catch(Exception e){}
+				Thread t = new Thread(b);
+				t.start();
+				first_time.set(false);
+			}
+		}
+		int x=10;
+		int y=20;
+		try{
+		//threadsection(b,x,y);
+		}catch(Exception e)
+		{
+			e.printStackTrace();
+		}
+		System.out.println("s###init");
+		
 		if (getProperties().getProperty(KEY_MONGO_DB_IP) != null) {
 			this.ipAddress = getProperties().getProperty(KEY_MONGO_DB_IP);
 		}
@@ -655,11 +656,11 @@ public class MongoBGClient extends DB {
 		
 		if(NvmIsUp)
 		{
-			NVM.rpush("f_"+Integer.toString(inviterID), Integer.toString(inviteeID));
+			NVM.sadd("f_"+Integer.toString(inviterID), Integer.toString(inviteeID));
 		}
 		else
 		{
-			TSA.rpush(Integer.toString(inviterID), "f_add_"+Integer.toString(inviteeID));
+			TSA.sadd(Integer.toString(inviterID), "f_add_"+Integer.toString(inviteeID));
 		}
 	
 		
@@ -759,14 +760,14 @@ public class MongoBGClient extends DB {
 		//---------------Changed By Kaushal on Nov 10---------------//
 		if(NvmIsUp)
 		{
-		NVM.rpush("f_"+Integer.toString(inviteeID), Integer.toString(inviterID));
+		NVM.sadd("f_"+Integer.toString(inviteeID), Integer.toString(inviterID));
 		
-		NVM.lrem("p_"+Integer.toString(inviteeID),0, Integer.toString(inviterID));
+		NVM.srem("p_"+Integer.toString(inviteeID),Integer.toString(inviterID));
 		}
 		else
 		{
-			TSA.rpush(Integer.toString(inviteeID), "f_add_"+Integer.toString(inviterID));
-			TSA.rpush(Integer.toString(inviteeID),"p_remove_"+Integer.toString(inviterID));
+			TSA.sadd(Integer.toString(inviteeID), "f_add_"+Integer.toString(inviterID));
+			TSA.sadd(Integer.toString(inviteeID),"p_remove_"+Integer.toString(inviterID));
 		}
 		
 		//---------------Changed By Kaushal on Nov 10---------------//
@@ -794,11 +795,11 @@ public class MongoBGClient extends DB {
 		//---------------Changed By Kaushal on Nov 10---------------//
 		if(NvmIsUp)
 		{
-			NVM.lrem("p_"+Integer.toString(inviteeID), 0, Integer.toString(inviterID));
+			NVM.srem("p_"+Integer.toString(inviteeID), Integer.toString(inviterID));
 		}
 		else
 		{
-			TSA.rpush(Integer.toString(inviteeID), "p_remove_"+Integer.toString(inviterID));
+			TSA.sadd(Integer.toString(inviteeID), "p_remove_"+Integer.toString(inviterID));
 		}
 		//---------------Changed By Kaushal on Nov 10---------------//
 		
@@ -816,12 +817,12 @@ public class MongoBGClient extends DB {
 		//---------------Changed By Kaushal on Nov 10---------------//
 		if(NvmIsUp)
 		{
-			NVM.rpush("p_"+Integer.toString(inviteeID), Integer.toString(inviterID));
+			NVM.sadd("p_"+Integer.toString(inviteeID), Integer.toString(inviterID));
 		}
 		//---------------Changed By Kaushal on Nov 10---------------//
 		else
 		{
-			TSA.rpush(Integer.toString(inviteeID), "p_add_"+Integer.toString(inviterID));
+			TSA.sadd(Integer.toString(inviteeID), "p_add_"+Integer.toString(inviterID));
 		}
 		
 		return 0;
@@ -870,11 +871,11 @@ public class MongoBGClient extends DB {
 		//---------------Changed By Kaushal on Nov 10---------------//
 		if(NvmIsUp)
 		{
-			NVM.lrem("f_"+Integer.toString(friendid1), 0, Integer.toString(friendid2));
+			NVM.srem("f_"+Integer.toString(friendid1), Integer.toString(friendid2));
 		}
 		else
 		{
-			TSA.rpush(Integer.toString(friendid1), "f_remove_"+Integer.toString(friendid2));
+			TSA.sadd(Integer.toString(friendid1), "f_remove_"+Integer.toString(friendid2));
 		}
 		
 		//---------------Changed By Kaushal on Nov 10---------------//
@@ -892,11 +893,11 @@ public class MongoBGClient extends DB {
 		//---------------Changed By Kaushal on Nov 10---------------//
 		if(NvmIsUp)
 		{
-			NVM.lrem("f_"+Integer.toString(friendid2), 0, Integer.toString(friendid1));
+			NVM.srem("f_"+Integer.toString(friendid2),Integer.toString(friendid1));
 		}
 		else
 		{
-			TSA.rpush(Integer.toString(friendid2), "f_remove_"+Integer.toString(friendid1));
+			TSA.sadd(Integer.toString(friendid2), "f_remove_"+Integer.toString(friendid1));
 		}
 		
 		//---------------Changed By Kaushal on Nov 10---------------//
@@ -918,10 +919,14 @@ public class MongoBGClient extends DB {
 				.getCollection(MONGO_USER_COLLECTION);
 		HashMap<String, String> stats = new HashMap<>();
 		System.out.println("initialized users " + coll.count());
+		try{
 		stats.put("usercount", String.valueOf(coll.count()));
 		stats.put("resourcesperuser", "0");
+		
 		stats.put("avgfriendsperuser", String.valueOf(coll.find().first().get(KEY_FRIEND, List.class).size()));
+		
 		stats.put("avgpendingperuser", String.valueOf(coll.find().first().get(KEY_PENDING, List.class).size()));
+		}catch(Exception e){}
 		return stats;
 	}
 	
@@ -1039,4 +1044,80 @@ public class MongoBGClient extends DB {
 	      res.deleteCharAt(res.length()-1);
 	    return res.toString();
 	  }
+}
+
+
+class Basic implements Runnable
+{
+	AtomicBoolean failedmode;
+	Jedis NVM;
+	Jedis TSA;
+	
+	public Basic(AtomicBoolean failedmode) {
+		this.failedmode = failedmode;
+		 NVM=new Jedis("localhost",6380);
+		 TSA=new Jedis("localhost",6379);
+	}
+	
+	public void TSA_to_NVM_Transfer()
+	{
+		System.out.println("STARTED"+System.nanoTime());
+		for(String x:TSA.keys("*"))
+		{
+			HashSet<String> current=(HashSet<String>) TSA.smembers(x);
+			System.out.println("arraylist "+current.toString());
+			for(String command:current)
+			{
+				String listtocheck=command.substring(0,command.indexOf("_"));
+				String action=command.substring(command.indexOf("_")+1,command.lastIndexOf("_"));
+				String value=command.substring(command.lastIndexOf("_")+1);
+				String exists_val=NVM.get(x);
+				if(exists_val!=null)
+				{
+					if(action.equals("add"))
+					{
+						NVM.sadd(listtocheck+"_"+x, value);
+					}
+					else if(action.equals("remove"))
+					{
+						NVM.srem(listtocheck+"_"+x, value);
+					}
+				}
+			}
+		}
+		System.out.println("FINSIHED"+System.nanoTime());
+		TSA.flushDB();
+	}
+	
+	public void threadsection(int x,int y) throws InterruptedException
+	{
+		if(failedmode.get()==false)
+		{
+			failedmode.set(true);
+			System.out.println("YOU CAME HERE BEGIN THREAD SECTION");
+			Thread.sleep(x*1000);
+			MongoBGClient.NvmIsUp=false;
+			System.out.println("NVM IS DOWN.");
+			Thread.sleep(y*1000);
+			TSA_to_NVM_Transfer();
+			System.out.println("TRANSFER FINISHED");
+			MongoBGClient.NvmIsUp=true;
+			System.out.println("NORMAL MODE AGAIN");
+		}
+		else
+		{
+			System.out.println("else section thread");
+		}
+	}
+	
+	@Override
+	public void run() {
+		try {
+			threadsection(10, 20);
+		} catch (InterruptedException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+	}
+	
 }
