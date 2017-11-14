@@ -95,23 +95,23 @@ public class MongoBGClient extends DB {
 		
 //		NVM.flushDB();
 		
+//		
+//		HashSet<String> RedisHsetField = new HashSet<>();
+//		RedisHsetField.add("f");
+//		RedisHsetField.add("p");
+//		RedisHsetField.add("username");
+//		RedisHsetField.add("pw");
+//		RedisHsetField.add("fname");
+//		RedisHsetField.add("lname");
+//		RedisHsetField.add("gender");
+//		RedisHsetField.add("jdate");
+//		RedisHsetField.add("ldate");
+//		RedisHsetField.add("address");
+//		RedisHsetField.add("email");
+//		RedisHsetField.add("tel");
 		
-		HashSet<String> RedisHsetField = new HashSet<>();
-		RedisHsetField.add("f");
-		RedisHsetField.add("p");
-		RedisHsetField.add("username");
-		RedisHsetField.add("pw");
-		RedisHsetField.add("fname");
-		RedisHsetField.add("lname");
-		RedisHsetField.add("gender");
-		RedisHsetField.add("jdate");
-		RedisHsetField.add("ldate");
-		RedisHsetField.add("address");
-		RedisHsetField.add("email");
-		RedisHsetField.add("tel");
 		
-		
-		if(NvmIsUp)
+		if(NvmIsUp==1)
 		{
 		String value = NVM.get(Integer.toString(profileOwnerID));
 		
@@ -254,7 +254,7 @@ public class MongoBGClient extends DB {
 		}
 		
 		
-		else
+		else if(NvmIsUp==2 || NvmIsUp==3)
 		{
 			MongoCollection<Document> coll = this.mongoClient.getDatabase(MONGO_DB_NAME)
 					.getCollection(MONGO_USER_COLLECTION);
@@ -329,7 +329,7 @@ public class MongoBGClient extends DB {
 		//String value=NVM.get("ListFriends_"+profileOwnerID);
 		
 		//---------------Changed By Kaushal on Nov 10---------------//
-		if(NvmIsUp)
+		if(NvmIsUp==1)
 		{
 		boolean callPstore = false;
 		HashSet<String> values = (HashSet<String>) NVM.smembers("f_"+profileOwnerID);
@@ -466,7 +466,7 @@ public class MongoBGClient extends DB {
 				
 		}
 		}
-		else
+		else if(NvmIsUp==2 || NvmIsUp==3)
 		{
 			MongoCollection<Document> coll = this.mongoClient.getDatabase(MONGO_DB_NAME)
 					.getCollection(MONGO_USER_COLLECTION);
@@ -654,7 +654,7 @@ public class MongoBGClient extends DB {
 		UpdateResult result = coll.updateOne(eq("_id", String.valueOf(inviterID)),
 				new BasicDBObject("$addToSet", new Document(KEY_FRIEND, String.valueOf(inviteeID))));
 		
-		if(NvmIsUp)
+		if(NvmIsUp==1)
 		{
 			NVM.sadd("f_"+Integer.toString(inviterID), Integer.toString(inviteeID));
 		}
@@ -758,23 +758,18 @@ public class MongoBGClient extends DB {
 		coll.updateOne(eq("_id", String.valueOf(inviteeID)), inviteeUpdate);
 		
 		//---------------Changed By Kaushal on Nov 10---------------//
-		if(NvmIsUp)
+		if(NvmIsUp==1)
 		{
-		NVM.sadd("f_"+Integer.toString(inviteeID), Integer.toString(inviterID));
-		
-		NVM.srem("p_"+Integer.toString(inviteeID),Integer.toString(inviterID));
+			NVM.sadd("f_"+Integer.toString(inviteeID), Integer.toString(inviterID));
+			NVM.srem("p_"+Integer.toString(inviteeID),Integer.toString(inviterID));
 		}
-		else
+		else if(NvmIsUp==2)
 		{
 			TSA.sadd(Integer.toString(inviteeID), "f_add_"+Integer.toString(inviterID));
 			TSA.sadd(Integer.toString(inviteeID),"p_remove_"+Integer.toString(inviterID));
 		}
 		
 		//---------------Changed By Kaushal on Nov 10---------------//
-		
-		
-		
-		
 		return 0;
 	}
 
@@ -793,11 +788,11 @@ public class MongoBGClient extends DB {
 				new BasicDBObject("$pull", new Document(KEY_PENDING, String.valueOf(inviterID))));
 		
 		//---------------Changed By Kaushal on Nov 10---------------//
-		if(NvmIsUp)
+		if(NvmIsUp==1)
 		{
 			NVM.srem("p_"+Integer.toString(inviteeID), Integer.toString(inviterID));
 		}
-		else
+		else if(NvmIsUp==2)
 		{
 			TSA.sadd(Integer.toString(inviteeID), "p_remove_"+Integer.toString(inviterID));
 		}
@@ -815,12 +810,12 @@ public class MongoBGClient extends DB {
 				new BasicDBObject("$addToSet", new Document(KEY_PENDING, String.valueOf(inviterID))));
 		
 		//---------------Changed By Kaushal on Nov 10---------------//
-		if(NvmIsUp)
+		if(NvmIsUp==1)
 		{
 			NVM.sadd("p_"+Integer.toString(inviteeID), Integer.toString(inviterID));
 		}
 		//---------------Changed By Kaushal on Nov 10---------------//
-		else
+		else if(NvmIsUp==2)
 		{
 			TSA.sadd(Integer.toString(inviteeID), "p_add_"+Integer.toString(inviterID));
 		}
@@ -869,11 +864,11 @@ public class MongoBGClient extends DB {
 				new BasicDBObject("$pull", new Document(KEY_FRIEND, String.valueOf(friendid2))));
 		
 		//---------------Changed By Kaushal on Nov 10---------------//
-		if(NvmIsUp)
+		if(NvmIsUp==1)
 		{
 			NVM.srem("f_"+Integer.toString(friendid1), Integer.toString(friendid2));
 		}
-		else
+		else if(NvmIsUp==2)
 		{
 			TSA.sadd(Integer.toString(friendid1), "f_remove_"+Integer.toString(friendid2));
 		}
@@ -891,11 +886,11 @@ public class MongoBGClient extends DB {
 				new BasicDBObject("$pull", new Document(KEY_FRIEND, String.valueOf(friendid1))));
 		
 		//---------------Changed By Kaushal on Nov 10---------------//
-		if(NvmIsUp)
+		if(NvmIsUp==1)
 		{
 			NVM.srem("f_"+Integer.toString(friendid2),Integer.toString(friendid1));
 		}
-		else
+		else if(NvmIsUp==2)
 		{
 			TSA.sadd(Integer.toString(friendid2), "f_remove_"+Integer.toString(friendid1));
 		}
@@ -1065,7 +1060,6 @@ class Basic implements Runnable
 		for(String x:TSA.keys("*"))
 		{
 			HashSet<String> current=(HashSet<String>) TSA.smembers(x);
-			System.out.println("arraylist "+current.toString());
 			for(String command:current)
 			{
 				String listtocheck=command.substring(0,command.indexOf("_"));
@@ -1096,12 +1090,13 @@ class Basic implements Runnable
 			failedmode.set(true);
 			System.out.println("YOU CAME HERE BEGIN THREAD SECTION");
 			Thread.sleep(x*1000);
-			MongoBGClient.NvmIsUp=false;
+			MongoBGClient.NvmIsUp=2;
 			System.out.println("NVM IS DOWN.");
 			Thread.sleep(y*1000);
+			MongoBGClient.NvmIsUp=3;
 			TSA_to_NVM_Transfer();
 			System.out.println("TRANSFER FINISHED");
-			MongoBGClient.NvmIsUp=true;
+			MongoBGClient.NvmIsUp=1;
 			System.out.println("NORMAL MODE AGAIN");
 		}
 		else
