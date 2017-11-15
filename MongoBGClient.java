@@ -35,13 +35,23 @@ import edu.usc.bg.base.DB;
 import edu.usc.bg.base.DBException;
 import edu.usc.bg.base.ObjectByteIterator;
 import redis.clients.jedis.Jedis;
+import redis.clients.jedis.JedisPool;
+import redis.clients.jedis.JedisPoolConfig;
 
 public class MongoBGClient extends DB {
 
 	MongoClient mongoClient;
 	private String ipAddress;
+	
+//	static JedisPool pool1 = new JedisPool(new JedisPoolConfig(), "localhost",6379);
+//	static JedisPool pool2 = new JedisPool(new JedisPoolConfig(), "localhost",6380);
+	
+	
 	Jedis NVM=new Jedis("localhost",6380);
 	Jedis TSA=new Jedis("localhost",6379);
+//	Jedis NVM=pool2.getResource();
+	
+//	Jedis TSA=pool1.getResource();
 	static volatile int NvmIsUp=1;
 	static volatile AtomicBoolean failedmode=new AtomicBoolean(false);
 	boolean NVMinRecovery=false;
@@ -543,14 +553,14 @@ public class MongoBGClient extends DB {
 	
 	@Override
 	public boolean init() throws DBException {
-		Properties p=new Properties();
+		Properties p=getProperties();
 		System.out.println(p.getProperty("maxexecutiontime"));
 		System.out.println(p.getProperty("failedmodeduration"));
 		
 		synchronized(this) {
 			if(first_time.get()==true)
 			{
-				Basic b=new Basic(failedmode);
+				Basic b=new Basic(failedmode,null);
 //				System.out.println("INIT BLOCK SYNCHR");
 //				try{
 //				threadsection(b,10,20);
@@ -1044,69 +1054,108 @@ public class MongoBGClient extends DB {
 }
 
 
-class Basic2 implements Runnable
-{	
-	Jedis NVM;
-	Jedis TSA;
-	
-	public Basic2() {
-		 NVM=new Jedis("localhost",6380);
-		 TSA=new Jedis("localhost",6379);
-	}
-
-	@Override
-	public void run() {
-		// TODO Auto-generated method stub
-		
-		TSA_to_NVM_Transfer();
-		
-	}
-	
-	
-	public void TSA_to_NVM_Transfer()
-	{
-		System.out.println("STARTED"+System.nanoTime());
-		for(String x:TSA.keys("*"))
-		{
-			HashSet<String> current=(HashSet<String>) TSA.smembers(x);
-			for(String command:current)
-			{
-				String listtocheck=command.substring(0,command.indexOf("_"));
-				String action=command.substring(command.indexOf("_")+1,command.lastIndexOf("_"));
-				String value=command.substring(command.lastIndexOf("_")+1);
-				String exists_val=NVM.get(x);
-				if(exists_val!=null)
-				{
-					if(action.equals("add"))
-					{
-						NVM.sadd(listtocheck+"_"+x, value);
-					}
-					else if(action.equals("remove"))
-					{
-						NVM.srem(listtocheck+"_"+x, value);
-					}
-				}
-			}
-		}
-		System.out.println("FINSIHED"+System.nanoTime());
-		TSA.flushDB();
-	}
-	
-	
-}
+//class Basic2 implements Runnable
+//{	
+//	AtomicBoolean failedmode;
+//	Jedis NVM;
+//	Jedis TSA;
+//	
+//	public Basic(AtomicBoolean failedmode) {
+//		 NVM=new Jedis("localhost",6380);
+//		 TSA=new Jedis("localhost",6379);
+//	}
+//
+//	@Override
+//	public void run() {
+//		// TODO Auto-generated method stub
+//		
+//		TSA_to_NVM_Transfer();
+//		
+//	}
+//	
+//	
+//	public void TSA_to_NVM_Transfer()
+//	{
+//		System.out.println("STARTED"+System.nanoTime());
+//		for(String x:TSA.keys("*"))
+//		{
+//			HashSet<String> current=(HashSet<String>) TSA.smembers(x);
+//			for(String command:current)
+//			{
+//				String listtocheck=command.substring(0,command.indexOf("_"));
+//				String action=command.substring(command.indexOf("_")+1,command.lastIndexOf("_"));
+//				String value=command.substring(command.lastIndexOf("_")+1);
+//				String exists_val=NVM.get(x);
+//				if(exists_val!=null)
+//				{
+//					if(action.equals("add"))
+//					{
+//						NVM.sadd(listtocheck+"_"+x, value);
+//					}
+//					else if(action.equals("remove"))
+//					{
+//						NVM.srem(listtocheck+"_"+x, value);
+//					}
+//				}
+//			}
+//		}
+//		System.out.println("FINSIHED"+System.nanoTime());
+//		TSA.flushDB();
+//	}
+//	
+//	
+//}
 
 
 
 class Basic implements Runnable
 {
 	AtomicBoolean failedmode;
-	Jedis NVM;
-	Jedis TSA;
-	
-	public Basic(AtomicBoolean failedmode) {
+	Jedis NVM=new Jedis("localhost",6380);
+	Jedis TSA=new Jedis("localhost",6379);
+	List<String> currentlist;
+	public Basic(AtomicBoolean failedmode,List<String> currentlist) {
 		this.failedmode = failedmode;
-		 NVM=new Jedis("localhost",6380);
-		 TSA=new Jedis("localhost",6379);
+		this.currentlist=currentlist;
+	}
+	public void TSA_to_NVM_Transfer()
+	{	
+		System.out.println("STARTED"+System.nanoTime());
+		for(String x:currentlist)
+		{
+			HashSet<String> current=(HashSet<String>) TSA.smembers(x);
+			for(String command:current)
+			{
+				if(command!=null && command.length()!=0 && command.contains("_"))
+				{
+					String listtocheck=command.substring(0,command.indexOf("_"));
+					String action=command.substring(command.indexOf("_")+1,command.lastIndexOf("_"));
+					String value=command.substring(command.lastIndexOf("_")+1);
+					String exists_val=NVM.get(x);
+					if(exists_val!=null)
+					{
+						if(action.equals("add"))
+						{
+							NVM.sadd(listtocheck+"_"+x, value);
+						}
+						else if(action.equals("remove"))
+						{
+							NVM.srem(listtocheck+"_"+x, value);
+						}
+					}
+				}
+			}
+		}
+		System.out.println("FINSIHED"+System.nanoTime());
+//		TSA.flushDB();
+	}
+	public boolean call_ar_workers(AtomicBoolean failedmode,ArrayList<String> fulllist,int size)
+	{
+		for(int i=0;i<10;i++)
+		{
+			new Thread(new Basic(failedmode,fulllist.subList((size/100)*i,(size/100)*(i+1)))).start();
+		}
+		return true;
 	}
 
 	public void threadsection(int x,int y) throws InterruptedException
@@ -1121,14 +1170,12 @@ class Basic implements Runnable
 			Thread.sleep(y*1000);
 			MongoBGClient.NvmIsUp=3;
 			
+
+			HashSet<String> getallkeys=(HashSet<String>) TSA.keys("*");
+			ArrayList<String> fulllist=new ArrayList<>(getallkeys);
+			int size=fulllist.size();
 			
-			Basic2 b2 = new Basic2();
-			Thread x1 = new Thread(b2);
-			Thread x2 = new Thread(b2);
-			
-			x1.start();
-			x2.start();
-			
+			boolean recovery_complete=call_ar_workers(failedmode,fulllist,size);
 			
 			//TSA_to_NVM_Transfer();
 			System.out.println("TRANSFER FINISHED");
@@ -1144,7 +1191,14 @@ class Basic implements Runnable
 	@Override
 	public void run() {
 		try {
-			threadsection(10, 20);
+			if(failedmode.get()==false)
+			{
+				threadsection(10, 20);
+			}
+			else if(failedmode.get()==true)
+			{
+				TSA_to_NVM_Transfer();
+			}
 		} catch (InterruptedException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
