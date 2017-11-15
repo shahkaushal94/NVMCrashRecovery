@@ -50,6 +50,7 @@ public class MongoBGClient extends DB {
 	Jedis NVM=new Jedis("localhost",6380);
 	Jedis TSA=new Jedis("localhost",6379);
 //	Jedis NVM=pool2.getResource();
+	static boolean isRecovery=false;
 	
 //	Jedis TSA=pool1.getResource();
 	static volatile int NvmIsUp=1;
@@ -69,6 +70,10 @@ public class MongoBGClient extends DB {
 	public static AtomicBoolean friendLoad = new AtomicBoolean(false);
 	public static AtomicBoolean createFriendship = new AtomicBoolean(false);
 	public static final Semaphore loadFriends = new Semaphore(1);
+	
+	public static int isNVM=1; 
+	public boolean isFailureStarted=false;
+	
 
 	public MongoBGClient(String ipAddress) {
 		this.ipAddress = ipAddress;
@@ -554,6 +559,7 @@ public class MongoBGClient extends DB {
 	@Override
 	public boolean init() throws DBException {
 		Properties p=getProperties();
+		NVM.set("HB", "ON");
 		System.out.println(p.getProperty("maxexecutiontime"));
 		System.out.println(p.getProperty("failedmodeduration"));
 		
@@ -1149,7 +1155,7 @@ class Basic implements Runnable
 		System.out.println("FINSIHED"+System.nanoTime());
 //		TSA.flushDB();
 	}
-	public boolean call_ar_workers(AtomicBoolean failedmode,ArrayList<String> fulllist,int size)
+	public static boolean call_ar_workers(AtomicBoolean failedmode,ArrayList<String> fulllist,int size)
 	{
 		for(int i=0;i<10;i++)
 		{
@@ -1164,23 +1170,23 @@ class Basic implements Runnable
 		{
 			failedmode.set(true);
 			System.out.println("YOU CAME HERE BEGIN THREAD SECTION");
+			BackgroundThread BGG=new BackgroundThread(failedmode);
+			Thread bgthread=new Thread(BGG);
+			bgthread.start();
 			Thread.sleep(x*1000);
-			MongoBGClient.NvmIsUp=2;
+			NVM.set("HB", "OFF");
+			//MongoBGClient.NvmIsUp=2;
 			System.out.println("NVM IS DOWN.");
 			Thread.sleep(y*1000);
-			MongoBGClient.NvmIsUp=3;
+			//MongoBGClient.NvmIsUp=3;
+			NVM.set("HB", "ON");
 			
-
-			HashSet<String> getallkeys=(HashSet<String>) TSA.keys("*");
-			ArrayList<String> fulllist=new ArrayList<>(getallkeys);
-			int size=fulllist.size();
 			
-			boolean recovery_complete=call_ar_workers(failedmode,fulllist,size);
-			
+		//	NVM.set("HB", "ON");
 			//TSA_to_NVM_Transfer();
-			System.out.println("TRANSFER FINISHED");
-			MongoBGClient.NvmIsUp=1;
-			System.out.println("NORMAL MODE AGAIN");
+		//	System.out.println("TRANSFER FINISHED");
+		//	MongoBGClient.NvmIsUp=1;
+		//	System.out.println("NORMAL MODE AGAIN");
 		}
 		else
 		{
@@ -1203,6 +1209,55 @@ class Basic implements Runnable
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
+	}
+	
+}
+class BackgroundThread implements Runnable
+{
+	Jedis NVM=new Jedis("localhost",6380);
+	Jedis TSA=new Jedis("localhost",6379);
+	AtomicBoolean failedmode;
+	public BackgroundThread(AtomicBoolean failedmode)
+	{
+		this.failedmode=failedmode;
+	}
+	@Override
+	public void run() {
+		// TODO Auto-generated method stub
+		 try
+	        {
+	        	while(true) {
+	        		String HBVal=NVM.get("HB");
+	        		  //System.out.println("Val" + val + "NVM"+isNVM);
+	        		if(HBVal.equals("ON") && MongoBGClient.NvmIsUp==2) {
+	        			
+	        			System.out.println(MongoBGClient.NvmIsUp + "Switched to Recovery");
+	        			MongoBGClient.NvmIsUp=3;
+	        			HashSet<String> getallkeys=(HashSet<String>) TSA.keys("*");
+	        			ArrayList<String> fulllist=new ArrayList<>(getallkeys);
+	        			int size=fulllist.size();
+	        			MongoBGClient.isRecovery=mongoDB.Basic.call_ar_workers(failedmode,fulllist,size);
+	        			//MongoBGClient.NvmIsUp=1;
+	        			
+	        		}
+	        		else if(HBVal.equals("ON") && MongoBGClient.isRecovery==true) {
+	        			System.out.println(MongoBGClient.NvmIsUp + "Switched to Normal after recovery complete");
+	        			MongoBGClient.NvmIsUp=1;
+	        		}
+	        		else if (HBVal.equals("OFF")) {
+	        			//isFailure started - setup
+	        			System.out.println("In failed mode");
+	        			MongoBGClient.NvmIsUp=2;
+	        		}
+	        	
+	        	}
+	 
+	        }
+	        catch (Exception e)
+	        {
+	            // Throwing an exception
+	            System.out.println ("Exception is caught");
+	        }
 	}
 	
 }
