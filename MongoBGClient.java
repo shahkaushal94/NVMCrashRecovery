@@ -560,8 +560,8 @@ public class MongoBGClient extends DB {
 	public boolean init() throws DBException {
 		Properties p=getProperties();
 		NVM.set("HB", "ON");
-		System.out.println(p.getProperty("maxexecutiontime"));
-		System.out.println(p.getProperty("failedmodeduration"));
+//		int faileddurationtime=Integer.parseInt(p.getProperty("failedmodeduration"));
+//		int normalmodetime=Integer.parseInt(p.getProperty("normalmodetime"));
 		
 		synchronized(this) {
 			if(first_time.get()==true)
@@ -1231,22 +1231,23 @@ class BackgroundThread implements Runnable
 	        		  //System.out.println("Val" + val + "NVM"+isNVM);
 	        		if(HBVal.equals("ON") && MongoBGClient.NvmIsUp==2) {
 	        			
-	        			System.out.println(MongoBGClient.NvmIsUp + "Switched to Recovery");
+	        			//System.out.println(MongoBGClient.NvmIsUp + "Switched to Recovery");
 	        			MongoBGClient.NvmIsUp=3;
 	        			HashSet<String> getallkeys=(HashSet<String>) TSA.keys("*");
 	        			ArrayList<String> fulllist=new ArrayList<>(getallkeys);
 	        			int size=fulllist.size();
+	        			
 	        			MongoBGClient.isRecovery=mongoDB.Basic.call_ar_workers(failedmode,fulllist,size);
 	        			//MongoBGClient.NvmIsUp=1;
 	        			
 	        		}
 	        		else if(HBVal.equals("ON") && MongoBGClient.isRecovery==true) {
-	        			System.out.println(MongoBGClient.NvmIsUp + "Switched to Normal after recovery complete");
+	        			//System.out.println(MongoBGClient.NvmIsUp + "Switched to Normal after recovery complete");
 	        			MongoBGClient.NvmIsUp=1;
 	        		}
 	        		else if (HBVal.equals("OFF")) {
 	        			//isFailure started - setup
-	        			System.out.println("In failed mode");
+	        			//System.out.println("In failed mode");
 	        			MongoBGClient.NvmIsUp=2;
 	        		}
 	        	
