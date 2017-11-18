@@ -1,3 +1,4 @@
+
 package mongoDB;
 
 import static com.mongodb.client.model.Filters.eq;
@@ -36,6 +37,8 @@ import edu.usc.bg.base.DB;
 import edu.usc.bg.base.DBException;
 import edu.usc.bg.base.ObjectByteIterator;
 import redis.clients.jedis.Jedis;
+import redis.clients.jedis.JedisPool;
+import redis.clients.jedis.JedisPoolConfig;
 
 public class MongoBGClient extends DB {
 
@@ -854,7 +857,9 @@ public class MongoBGClient extends DB {
 				if(currentDelta.get()==false)
 				{
 					currentDelta.set(true);
-					currentTSA.sadd("delta", Integer.toString(inviterID) + "f_add_"+Integer.toString(inviteeID));
+					currentTSA.sadd("delta", Integer.toString(inviterID)+ "_f_add_"+Integer.toString(inviteeID));
+					currentTSA.sadd("f_"+Integer.toString(inviterID), Integer.toString(inviteeID));
+					
 				}
 			
 			//TSA.sadd(Integer.toString(inviterID), "f_add_"+Integer.toString(inviteeID));
@@ -863,8 +868,8 @@ public class MongoBGClient extends DB {
 			
 			if(currentDelta.get() == true && currentTSA.exists("delta") && discardCurrentTSA.get()==false )
 			{
-				currentTSA.sadd("delta", Integer.toString(inviterID) + "f_add_"+Integer.toString(inviteeID));
-				currentTSA.sadd(Integer.toString(inviterID), "f_add_"+Integer.toString(inviteeID));
+				currentTSA.sadd("delta", Integer.toString(inviterID)+ "_f_add_"+Integer.toString(inviteeID));
+				currentTSA.sadd("f_"+Integer.toString(inviterID), Integer.toString(inviteeID));
 			}
 			else
 			{
@@ -1039,8 +1044,8 @@ public class MongoBGClient extends DB {
 				if(currentDelta.get()==false)
 				{
 					currentDelta.set(true);
-					currentTSA.sadd("delta", Integer.toString(inviteeID) + "f_add_"+Integer.toString(inviterID));
-					currentTSA.sadd("delta", Integer.toString(inviteeID) + "p_remove_"+Integer.toString(inviterID));
+					currentTSA.sadd("delta", Integer.toString(inviteeID) + "_f_add_"+Integer.toString(inviterID));
+					currentTSA.sadd("delta", Integer.toString(inviteeID) + "_p_remove_"+Integer.toString(inviterID));
 				}
 			
 			//TSA.sadd(Integer.toString(inviterID), "f_add_"+Integer.toString(inviteeID));
@@ -1049,10 +1054,10 @@ public class MongoBGClient extends DB {
 			
 			if(currentDelta.get() == true && currentTSA.exists("delta") && discardCurrentTSA.get()==false )
 			{
-				currentTSA.sadd("delta", Integer.toString(inviteeID) + "f_add_"+Integer.toString(inviterID));
-				currentTSA.sadd("delta", Integer.toString(inviteeID) + "p_remove_"+Integer.toString(inviterID));
-				currentTSA.sadd(Integer.toString(inviteeID), "f_add_"+Integer.toString(inviterID));
-				currentTSA.sadd(Integer.toString(inviteeID), "p_remove_"+Integer.toString(inviterID));
+				currentTSA.sadd("delta", Integer.toString(inviteeID) + "_f_add_"+Integer.toString(inviterID));
+				currentTSA.sadd("delta", Integer.toString(inviteeID) + "_p_remove_"+Integer.toString(inviterID));
+				currentTSA.sadd("f_"+Integer.toString(inviteeID), Integer.toString(inviterID));
+				currentTSA.sadd("p_"+Integer.toString(inviteeID),Integer.toString(inviterID));
 				
 			}
 			else
@@ -1089,10 +1094,87 @@ public class MongoBGClient extends DB {
 		if(NvmIsUp==1)
 		{
 			NVM.srem("p_"+Integer.toString(inviteeID), Integer.toString(inviterID));
+			
+			int getTSANumber = inviterID%4;
+			
+			switch(getTSANumber)
+			{
+				case 0: TSA0.srem("p_"+Integer.toString(inviteeID), Integer.toString(inviterID));
+						break;
+				case 1: TSA1.srem("p_"+Integer.toString(inviteeID), Integer.toString(inviterID));
+						break;
+				case 2: TSA2.srem("p_"+Integer.toString(inviteeID), Integer.toString(inviterID));
+						break;
+				case 3: TSA3.srem("p_"+Integer.toString(inviteeID), Integer.toString(inviterID));
+						break;
+			}
+			
 		}
 		else if(NvmIsUp==2)
 		{
-			TSA1.sadd(Integer.toString(inviteeID), "p_remove_"+Integer.toString(inviterID));
+			//TSA1.sadd(Integer.toString(inviteeID), "p_remove_"+Integer.toString(inviterID));
+			
+			int checkTSA=inviterID%4;
+			Jedis currentTSA=null;
+			AtomicBoolean currentDelta = null;
+			AtomicBoolean discardCurrentTSA = null;
+			
+			
+			if(checkTSA==0)
+			{
+				currentTSA=TSA0;
+				currentDelta=deltaTSA0;
+				discardCurrentTSA = discardTSA0;
+			}
+			else if(checkTSA==1)
+			{
+				currentTSA=TSA1;
+				currentDelta=deltaTSA1;
+				discardCurrentTSA = discardTSA1;
+			}
+			else if(checkTSA==2)
+			{
+				currentTSA=TSA2;
+				currentDelta=deltaTSA2;
+
+				discardCurrentTSA = discardTSA2;
+			}
+			else if(checkTSA==3)
+			{
+				currentTSA=TSA3;
+				currentDelta=deltaTSA3;
+				discardCurrentTSA = discardTSA3;
+			}
+			
+			
+			synchronized(this) {
+				if(currentDelta.get()==false)
+				{
+					currentDelta.set(true);
+					currentTSA.sadd("delta", Integer.toString(inviteeID) + "_p_remove_"+Integer.toString(inviterID));
+					currentTSA.srem("p_"+Integer.toString(inviteeID), Integer.toString(inviterID));
+				}
+			
+			//TSA.sadd(Integer.toString(inviterID), "f_add_"+Integer.toString(inviteeID));
+			}
+			
+			
+			if(currentDelta.get() == true && currentTSA.exists("delta") && discardCurrentTSA.get()==false )
+			{
+				currentTSA.sadd("delta", Integer.toString(inviteeID) + "_p_remove_"+Integer.toString(inviterID));
+				currentTSA.srem("p_"+Integer.toString(inviteeID),Integer.toString(inviterID));
+				
+			}
+			else
+			{
+				discardCurrentTSA.set(true);
+			}
+
+		}
+		else if(NvmIsUp==3)
+		{
+			
+			NVM.del("p_"+Integer.toString(inviteeID));
 		}
 		//---------------Changed By Kaushal on Nov 10---------------//
 		
@@ -1205,8 +1287,8 @@ public class MongoBGClient extends DB {
 		
 		return 0;
 	}
-
 	@Override
+
 	public int viewTopKResources(int requesterID, int profileOwnerID, int k,
 			Vector<HashMap<String, ByteIterator>> result) {
 		// TODO Auto-generated method stub
@@ -1334,7 +1416,7 @@ public class MongoBGClient extends DB {
 
 		return 0;
 	}
-
+	
 	public int thawFriendInvitee(int friendid1, int friendid2) {
 		MongoCollection<Document> coll = this.mongoClient.getDatabase(MONGO_DB_NAME)
 				.getCollection(MONGO_USER_COLLECTION);
@@ -1440,7 +1522,6 @@ public class MongoBGClient extends DB {
 		
 		return 0;
 	}
-
 	@Override
 	public int thawFriendship(int friendid1, int friendid2) {
 		thawFriendInviter(friendid1, friendid2);
