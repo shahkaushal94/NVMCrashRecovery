@@ -1,4 +1,3 @@
-
 package mongoDB;
 
 import static com.mongodb.client.model.Filters.eq;
@@ -1726,7 +1725,7 @@ class Basic implements Runnable
 	Jedis TSA2=new Jedis("localhost",6382);
 	Jedis TSA3=new Jedis("localhost",6383);
 	
-	
+	static HashMap<String, ArrayList<String>> hm = new HashMap<String,ArrayList<String>>();
 	
 	
 	List<String> currentlist;
@@ -1804,11 +1803,10 @@ class Basic implements Runnable
 		}
 	}
 	
-	public void updateNVMInRecovery(Jedis TSA)
+	public void createHashMap(Set<String> delta)
 	{
-		Set<String> deltaValues = TSA.keys("delta");
 		
-		Iterator<String> it = deltaValues.iterator();
+		Iterator<String> it = delta.iterator();
 		
 		while(it.hasNext())
 		{
@@ -1818,14 +1816,21 @@ class Basic implements Runnable
 			String action = TSADeltavalues[2];
 			String profileID2 = TSADeltavalues[3];
 			
-			if(action.equals("add"))
-			{
-				NVM.sadd(listToCheck+"_"+profileID1, profileID2);
-			}
-			else if(action.equals("remove"))
-			{
-				NVM.srem(listToCheck+"_"+profileID1, profileID2);
-			}
+			
+			
+			ArrayList<String> val = new ArrayList<String>();
+			ArrayList<String> actualVal = hm.getOrDefault(profileID1, val)
+			actualVal.add(listToCheck+"_" + action +"_"+ profileID2);
+			hm.put(profileID1, actualVal);
+			
+//			if(action.equals("add"))
+//			{
+//				NVM.sadd(listToCheck+"_"+profileID1, profileID2);
+//			}
+//			else if(action.equals("remove"))
+//			{
+//				NVM.srem(listToCheck+"_"+profileID1, profileID2);
+//			}
 			
 		}
 		
@@ -1833,47 +1838,70 @@ class Basic implements Runnable
 	
 	public void recovery()
 	{
-		HashSet<Integer> discardKeyEndingWith = new HashSet<Integer>();
-		if(mongoDB.MongoBGClient.discardTSA0.get()==true)
+//		HashSet<Integer> discardKeyEndingWith = new HashSet<Integer>();
+//		if(mongoDB.MongoBGClient.discardTSA0.get()==true)
+//		{
+//			discardKeyEndingWith.add(0);
+//			mongoDB.MongoBGClient.discardTSA0.set(false);
+//			TSA0.flushAll();
+//		}
+//		else
+//		{
+//			updateNVMInRecovery(TSA0);	
+//		}
+//		if(mongoDB.MongoBGClient.discardTSA1.get()==true)
+//		{
+//			discardKeyEndingWith.add(1);
+//			mongoDB.MongoBGClient.discardTSA1.set(false);
+//			TSA1.flushAll();
+//		}
+//		else
+//		{
+//			updateNVMInRecovery(TSA1);
+//		}
+//		if(mongoDB.MongoBGClient.discardTSA2.get()==true)
+//		{
+//			discardKeyEndingWith.add(2);
+//			mongoDB.MongoBGClient.discardTSA2.set(false);
+//			TSA2.flushAll();
+//		}
+//		else
+//		{
+//			updateNVMInRecovery(TSA2);
+//		}
+//		if(mongoDB.MongoBGClient.discardTSA3.get()==true)
+//		{
+//			discardKeyEndingWith.add(3);
+//			mongoDB.MongoBGClient.discardTSA3.set(false);
+//			TSA3.flushAll();
+//		}
+//		else
+//		{
+//			updateNVMInRecovery(TSA3);
+//		}
+		
+		if(MongoBGClient.discardTSA0.get()==false)
 		{
-			discardKeyEndingWith.add(0);
-			mongoDB.MongoBGClient.discardTSA0.set(false);
-			TSA0.flushAll();
+			Set<String> deltaValues = TSA0.keys("delta");
+			createHashMap(deltaValues);
 		}
-		else
+		if(MongoBGClient.discardTSA1.get()==false)
 		{
-			updateNVMInRecovery(TSA0);	
+			Set<String> deltaValues = TSA1.keys("delta");
+			createHashMap(deltaValues);
 		}
-		if(mongoDB.MongoBGClient.discardTSA1.get()==true)
+		if(MongoBGClient.discardTSA2.get()==false)
 		{
-			discardKeyEndingWith.add(1);
-			mongoDB.MongoBGClient.discardTSA1.set(false);
-			TSA1.flushAll();
+			Set<String> deltaValues = TSA2.keys("delta");
+			createHashMap(deltaValues);
 		}
-		else
+		if(MongoBGClient.discardTSA3.get()==false)
 		{
-			updateNVMInRecovery(TSA1);
+			Set<String> deltaValues = TSA3.keys("delta");
+			createHashMap(deltaValues);
 		}
-		if(mongoDB.MongoBGClient.discardTSA2.get()==true)
-		{
-			discardKeyEndingWith.add(2);
-			mongoDB.MongoBGClient.discardTSA2.set(false);
-			TSA2.flushAll();
-		}
-		else
-		{
-			updateNVMInRecovery(TSA2);
-		}
-		if(mongoDB.MongoBGClient.discardTSA3.get()==true)
-		{
-			discardKeyEndingWith.add(3);
-			mongoDB.MongoBGClient.discardTSA3.set(false);
-			TSA3.flushAll();
-		}
-		else
-		{
-			updateNVMInRecovery(TSA3);
-		}
+		
+
 		
 		Set<String> nvmAllKeys = new HashSet<String>();
 		
@@ -1887,29 +1915,72 @@ class Basic implements Runnable
 			
 			Jedis currentTSA = null;
 			int checkTSA = Integer.parseInt(nvmKey)%4;
+			AtomicBoolean currentDiscardTsa = null;
 			if(checkTSA==0)
 			{
 				currentTSA=TSA0;
+				if(MongoBGClient.discardTSA0.get() == true)
+				{
+					currentDiscardTsa.set(true);
+				}
 			}
 			else if(checkTSA==1)
 			{
 				currentTSA=TSA1;
+				if(MongoBGClient.discardTSA1.get() == true)
+				{
+					currentDiscardTsa.set(true);
+				}
 			}
 			else if(checkTSA==2)
 			{
 				currentTSA=TSA2;
+				if(MongoBGClient.discardTSA2.get() == true)
+				{
+					currentDiscardTsa.set(true);
+				}
 			}
 			else if(checkTSA==3)
 			{
 				currentTSA=TSA3;
+				if(MongoBGClient.discardTSA3.get() == true)
+				{
+					currentDiscardTsa.set(true);
+				}
 			}
 			
 			
 			
 			
-			if(discardKeyEndingWith.contains(Integer.parseInt(nvmKey)%4))
+			if(currentDiscardTsa.get()==true && !hm.containsKey(nvmKey))
 			{
 				NVM.del(nvmKey);
+				NVM.del("f_"+nvmKey);
+				NVM.del("p_"+nvmKey);
+			}
+			else
+			{
+				ArrayList<String> update = hm.get(nvmKey);
+				
+				for (String s:update)
+				{
+					String TSADeltavalues[] = s.split("_");
+					//String profileID1 = TSADeltavalues[0];
+					String listToCheck = TSADeltavalues[0];
+					String action = TSADeltavalues[1];
+					String profileID2 = TSADeltavalues[2];
+					if(action.equals("add"))
+					{
+						NVM.sadd(listToCheck+"_"+nvmKey, profileID2);
+					}
+					else if(action.equals("remove"))
+					{
+						NVM.srem(listToCheck+"_"+nvmKey, profileID2);
+					}
+					
+					
+				}
+				
 			}
 
 			
