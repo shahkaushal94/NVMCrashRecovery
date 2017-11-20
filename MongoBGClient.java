@@ -207,6 +207,7 @@ public class MongoBGClient extends DB {
 //		System.exit(1);
 		
 		Set<String> StoredKeys = result.keySet();
+		//System.out.println("print hashmap profile zone "+result.toString());
 		
 		
 		
@@ -220,7 +221,7 @@ public class MongoBGClient extends DB {
 			{
 				NVM.set("p_"+Integer.toString(profileOwnerID), result.get(x).toString());
 				currentTSA.set("p_"+Integer.toString(profileOwnerID), result.get(x).toString());
-				System.out.println(currentTSA);
+				System.out.println("pointer "+currentTSA);
 				sb.append(x+"="+result.get(x).toString());
 			}
 			else if(x.equals("f"))
@@ -254,8 +255,19 @@ public class MongoBGClient extends DB {
 				
 			for(String pair : keyValuePairs)      
 			{
-			    String[] entry = pair.split("=");                   
-			    result.put(entry[0].trim(), new ObjectByteIterator(String.valueOf(entry[1].trim()).getBytes()));         
+			    String[] entry = pair.split("=");  
+			    if(entry[0].equals("friendcount"))
+			    {
+			    	result.put(entry[0].trim(), new ObjectByteIterator(String.valueOf(NVM.smembers("f_"+profileOwnerID).size()).getBytes())); 
+			    }
+			    else if(entry[0].equals("pendingcount"))
+			    {
+			    	result.put(entry[0].trim(), new ObjectByteIterator(String.valueOf(NVM.smembers("p_"+profileOwnerID).size()).getBytes())); 
+			    }
+			    else
+			    {
+			    	result.put(entry[0].trim(), new ObjectByteIterator(String.valueOf(entry[1].trim()).getBytes()));         
+			    }
 			}
 		}
 	}
@@ -357,7 +369,19 @@ public class MongoBGClient extends DB {
 				for(String pair : keyValuePairs)      
 				{
 				    String[] entry = pair.split("=");                   
-				    result.put(entry[0].trim(), new ObjectByteIterator(String.valueOf(entry[1].trim()).getBytes()));         
+				    result.put(entry[0].trim(), new ObjectByteIterator(String.valueOf(entry[1].trim()).getBytes()));   
+				    if(entry[0].equals("friendcount"))
+				    {
+				    	result.put(entry[0].trim(), new ObjectByteIterator(String.valueOf(currentTSA.smembers("f_"+profileOwnerID).size()).getBytes())); 
+				    }
+				    else if(entry[0].equals("pendingcount"))
+				    {
+				    	result.put(entry[0].trim(), new ObjectByteIterator(String.valueOf(currentTSA.smembers("p_"+profileOwnerID).size()).getBytes())); 
+				    }
+				    else
+				    {
+				    	result.put(entry[0].trim(), new ObjectByteIterator(String.valueOf(entry[1].trim()).getBytes()));         
+				    }
 				}
 			}
 		}
@@ -1902,7 +1926,7 @@ class BackgroundThread implements Runnable
 	Jedis TSA2=new Jedis("localhost",6382);
 	Jedis TSA3=new Jedis("localhost",6383);
 	
-	
+	static HashMap<String,ArrayList<String>> hm=new HashMap<>();
 	
 	AtomicBoolean failedmode;
 	
@@ -1935,53 +1959,114 @@ class BackgroundThread implements Runnable
 		TSA.flushDB();
 	}
 	
-	public void recovery()
+	
+	
+	
+	
+	public BackgroundThread(AtomicBoolean failedmode)
+	{
+		this.failedmode=failedmode;
+	}
+	
+	public void createHashMap(Set<String> delta)
 	{
 		
-		System.out.println("Inside Recovery phase");
+		Iterator<String> it = delta.iterator();
 		
-		HashSet<Integer> discardKeyEndingWith = new HashSet<Integer>();
-		if(mongoDB.MongoBGClient.discardTSA0.get()==true)
+		while(it.hasNext())
 		{
-			discardKeyEndingWith.add(0);
-			mongoDB.MongoBGClient.discardTSA0.set(false);
-			//TSA0.flushAll();
-			TSA0.flushDB();
+			String TSADeltavalues[] = it.next().split("_");
+			String profileID1 = TSADeltavalues[0];
+			String listToCheck = TSADeltavalues[1];
+			String action = TSADeltavalues[2];
+			String profileID2 = TSADeltavalues[3];
+			
+			
+			
+			ArrayList<String> val = new ArrayList<String>();
+			ArrayList<String> actualVal = hm.getOrDefault(profileID1, val);
+			actualVal.add(listToCheck+"_" + action +"_"+ profileID2);
+			hm.put(profileID1, actualVal);
+			
+//			if(action.equals("add"))
+//			{
+//				NVM.sadd(listToCheck+"_"+profileID1, profileID2);
+//			}
+//			else if(action.equals("remove"))
+//			{
+//				NVM.srem(listToCheck+"_"+profileID1, profileID2);
+//			}
+			
 		}
-		else
+		
+	}
+	
+	public void recovery()
+	{
+//		HashSet<Integer> discardKeyEndingWith = new HashSet<Integer>();
+//		if(mongoDB.MongoBGClient.discardTSA0.get()==true)
+//		{
+//			discardKeyEndingWith.add(0);
+//			mongoDB.MongoBGClient.discardTSA0.set(false);
+//			TSA0.flushAll();
+//		}
+//		else
+//		{
+//			updateNVMInRecovery(TSA0);	
+//		}
+//		if(mongoDB.MongoBGClient.discardTSA1.get()==true)
+//		{
+//			discardKeyEndingWith.add(1);
+//			mongoDB.MongoBGClient.discardTSA1.set(false);
+//			TSA1.flushAll();
+//		}
+//		else
+//		{
+//			updateNVMInRecovery(TSA1);
+//		}
+//		if(mongoDB.MongoBGClient.discardTSA2.get()==true)
+//		{
+//			discardKeyEndingWith.add(2);
+//			mongoDB.MongoBGClient.discardTSA2.set(false);
+//			TSA2.flushAll();
+//		}
+//		else
+//		{
+//			updateNVMInRecovery(TSA2);
+//		}
+//		if(mongoDB.MongoBGClient.discardTSA3.get()==true)
+//		{
+//			discardKeyEndingWith.add(3);
+//			mongoDB.MongoBGClient.discardTSA3.set(false);
+//			TSA3.flushAll();
+//		}
+//		else
+//		{
+//			updateNVMInRecovery(TSA3);
+//		}
+		
+		if(MongoBGClient.discardTSA0.get()==false)
 		{
-			updateNVMInRecovery(TSA0);	
+			Set<String> deltaValues = TSA0.smembers("delta");
+			createHashMap(deltaValues);
 		}
-		if(mongoDB.MongoBGClient.discardTSA1.get()==true)
+		if(MongoBGClient.discardTSA1.get()==false)
 		{
-			discardKeyEndingWith.add(1);
-			mongoDB.MongoBGClient.discardTSA1.set(false);
-			TSA1.flushDB();
+			Set<String> deltaValues = TSA1.smembers("delta");
+			createHashMap(deltaValues);
 		}
-		else
+		if(MongoBGClient.discardTSA2.get()==false)
 		{
-			updateNVMInRecovery(TSA1);
+			Set<String> deltaValues = TSA2.smembers("delta");
+			createHashMap(deltaValues);
 		}
-		if(mongoDB.MongoBGClient.discardTSA2.get()==true)
+		if(MongoBGClient.discardTSA3.get()==false)
 		{
-			discardKeyEndingWith.add(2);
-			mongoDB.MongoBGClient.discardTSA2.set(false);
-			TSA2.flushDB();
+			Set<String> deltaValues = TSA3.smembers("delta");
+			createHashMap(deltaValues);
 		}
-		else
-		{
-			updateNVMInRecovery(TSA2);
-		}
-		if(mongoDB.MongoBGClient.discardTSA3.get()==true)
-		{
-			discardKeyEndingWith.add(3);
-			mongoDB.MongoBGClient.discardTSA3.set(false);
-			TSA3.flushDB();
-		}
-		else
-		{
-			updateNVMInRecovery(TSA3);
-		}
+		
+
 		
 		Set<String> nvmAllKeys = new HashSet<String>();
 		
@@ -1992,50 +2077,93 @@ class BackgroundThread implements Runnable
 		while(it.hasNext())
 		{
 			String nvmKey = it.next();
-			
-			Jedis currentTSA = null;
 			if(!nvmKey.contains("f") && !nvmKey.contains("p") && !nvmKey.contains("HB"))
 			{
-				int checkTSA = Integer.parseInt(nvmKey)%4;
-				if(checkTSA==0)
+			Jedis currentTSA = null;
+			int checkTSA = Integer.parseInt(nvmKey)%4;
+			AtomicBoolean currentDiscardTsa = new AtomicBoolean(false);
+			if(checkTSA==0)
+			{
+				currentTSA=TSA0;
+				if(MongoBGClient.discardTSA0.get() == true)
 				{
-					currentTSA=TSA0;
+					currentDiscardTsa.set(true);
 				}
-				else if(checkTSA==1)
+			}
+			else if(checkTSA==1)
+			{
+				currentTSA=TSA1;
+				if(MongoBGClient.discardTSA1.get() == true)
 				{
-					currentTSA=TSA1;
+					currentDiscardTsa.set(true);
 				}
-				else if(checkTSA==2)
+			}
+			else if(checkTSA==2)
+			{
+				currentTSA=TSA2;
+				if(MongoBGClient.discardTSA2.get() == true)
 				{
-					currentTSA=TSA2;
+					currentDiscardTsa.set(true);
 				}
-				else if(checkTSA==3)
+			}
+			else if(checkTSA==3)
+			{
+				currentTSA=TSA3;
+				if(MongoBGClient.discardTSA3.get() == true)
 				{
-					currentTSA=TSA3;
+					currentDiscardTsa.set(true);
 				}
-
-				if(discardKeyEndingWith.contains(Integer.parseInt(nvmKey)%4))
+			}
+			
+			
+			
+			
+			if(currentDiscardTsa.get()==true && !hm.containsKey(nvmKey))
+			{
+				NVM.del(nvmKey);
+				NVM.del("f_"+nvmKey);
+				NVM.del("p_"+nvmKey);
+			}
+			else
+			{
+				ArrayList<String> update = hm.getOrDefault(nvmKey,new ArrayList<>());
+				
+				for (String s:update)
 				{
-					NVM.del("f_"+nvmKey);
-					NVM.del("p_"+nvmKey);
-					NVM.del(nvmKey);
+					String TSADeltavalues[] = s.split("_");
+					//String profileID1 = TSADeltavalues[0];
+					String listToCheck = TSADeltavalues[0];
+					String action = TSADeltavalues[1];
+					String profileID2 = TSADeltavalues[2];
+					if(action.equals("add"))
+					{
+						NVM.sadd(listToCheck+"_"+nvmKey, profileID2);
+					}
+					else if(action.equals("remove"))
+					{
+						NVM.srem(listToCheck+"_"+nvmKey, profileID2);
+					}
+					
+					
 				}
 				
-			}	
+			}
+
+			}
+			
 		}
+		MongoBGClient.discardTSA0.set(false);
+		MongoBGClient.discardTSA1.set(false);
+		MongoBGClient.discardTSA2.set(false);
+		MongoBGClient.discardTSA3.set(false);
 		
 		
-		//System.exit(0);
+		
+		
 		
 	}
 	
 	
-	
-	
-	public BackgroundThread(AtomicBoolean failedmode)
-	{
-		this.failedmode=failedmode;
-	}
 	@Override
 	public void run() {
 		// TODO Auto-generated method stub
