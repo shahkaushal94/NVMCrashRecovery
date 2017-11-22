@@ -44,9 +44,7 @@ public class MongoBGClient extends DB {
 
 	MongoClient mongoClient;
 	private String ipAddress;
-	
-//	static JedisPool pool1 = new JedisPool(new JedisPoolConfig(), "localhost",6379);
-//	static JedisPool pool2 = new JedisPool(new JedisPoolConfig(), "localhost",6380);
+
 	
 	
 	Jedis NVM=new Jedis("localhost",6379);
@@ -86,7 +84,7 @@ public class MongoBGClient extends DB {
 	public static final String KEY_PENDING = "p";
 	public static final String KEY_MONGO_DB_IP = "mongoip";
 
-	public static final int LIST_FRIENDS = 10;
+	public static final int LIST_FRIENDS = Integer.MAX_VALUE;
 	
 	public static AtomicBoolean friendLoad = new AtomicBoolean(false);
 	public static AtomicBoolean createFriendship = new AtomicBoolean(false);
@@ -558,18 +556,22 @@ public class MongoBGClient extends DB {
 			{
 				boolean friendcountexists=NVM.exists(i+"_friendcount");
 				boolean pendingcountexists=NVM.exists(i+"_pendingcount");
+				boolean friendlistexists1=NVM.exists(i+"_friendlist");
+				boolean pendinglistexists1=NVM.exists(i+"_pendinglist");
 				
-				if(!friendcountexists || !pendingcountexists)
+				if(!friendcountexists || !pendingcountexists || !friendlistexists1 || pendinglistexists1)
 				{
 					callPstore=true; 
 					break;
 				}
 				String value1 = NVM.get(i+"_friendcount");
 				String value2=NVM.get(i+"_pendingcount");
+				
+				
 				Set<String> friendlist_current=NVM.smembers(i+"_friendlist");
-//				Set<String> friendlist=NVM.smembers(i+"_friendlist");
+				Set<String> pendinglist_current=NVM.smembers(i+"_pendinglist");
 				//System.out.println("NVM GET VALUE:" + value);
-				if(Integer.parseInt(value1)==0 || Integer.parseInt(value2)==0)
+				if(Integer.parseInt(value1)==0 || Integer.parseInt(value2)==0 || friendlist_current.size()==0 || pendinglist_current.size()==0)
 				{
 					callPstore = true;
 					flag =1;
@@ -582,13 +584,14 @@ public class MongoBGClient extends DB {
 //				    String[] entry = pair.split("=");                   
 //				    oneFriendsDoc.put(entry[0].trim(), new ObjectByteIterator(String.valueOf(entry[1].trim()).getBytes()));         
 //				}
+				
 				oneFriendsDoc.put("friendcount", new ObjectByteIterator(Integer.toString(friendlist_current.size()).getBytes()));
-				oneFriendsDoc.put("pendingcount", new ObjectByteIterator(value2.getBytes()));
+				oneFriendsDoc.put("pendingcount", new ObjectByteIterator(Integer.toString(pendinglist_current.size()).getBytes()));
 				result.add(oneFriendsDoc);
 			}
 		}
 		 
-		
+		 
 		if(callPstore)
 		{
 			result.removeAllElements();
@@ -724,7 +727,7 @@ public class MongoBGClient extends DB {
 			if(!friendlistexists || values.size()==0)
 			{
 				callPstore = true;
-			} 
+			}  
 			else
 			{
 				int flag = 0;
@@ -1205,7 +1208,7 @@ public class MongoBGClient extends DB {
 		coll.updateOne(eq("_id", String.valueOf(inviteeID)), inviteeUpdate);
 		
 		//---------------Changed By Kaushal on Nov 10---------------//
-		if(NvmIsUp==1 && NVM.exists(Integer.toString(inviteeID)+"_friendlist") && NVM.exists(Integer.toString(inviteeID)+"_pendinglist"))
+		if(NvmIsUp==1 && NVM.exists(Integer.toString(inviteeID)+"_friendlist"))
 		{
 			
 			NVM.sadd(Integer.toString(inviteeID)+"_friendlist", Integer.toString(inviterID));
