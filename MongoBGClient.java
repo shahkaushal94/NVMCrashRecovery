@@ -40,42 +40,63 @@ import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.JedisPoolConfig;
 
+
 public class MongoBGClient extends DB {
 
 	MongoClient mongoClient;
 	private String ipAddress;
+
+	Properties p=getProperties();
 	
-//	static JedisPool pool1 = new JedisPool(new JedisPoolConfig(), "localhost",6379);
-//	static JedisPool pool2 = new JedisPool(new JedisPoolConfig(), "localhost",6380);
+	static int numberofnvms,numberoftsas;
+	static ArrayList<Jedis> nvmobjs=new ArrayList<>();
+	
+	static ArrayList<Jedis> tsas=new ArrayList<>();
 	
 	
-	Jedis NVM=new Jedis("localhost",6379);
-	Jedis TSA0=new Jedis("localhost",6380);
-	Jedis TSA1=new Jedis("localhost",6381);
-	Jedis TSA2=new Jedis("localhost",6382);
-	Jedis TSA3=new Jedis("localhost",6383);
-	static boolean isRecovery=false;
-	static boolean donotrecover=false;
+//	Jedis NVM1=new Jedis("localhost",6379);
+//	Jedis TSA1=new Jedis("localhost",6380);
+//	
+//	Jedis NVM2=new Jedis("localhost",6381);
+//	Jedis TSA2=new Jedis("localhost",6382);
+	
+//	Jedis NVM=new Jedis("localhost",6379);
+//	Jedis TSA0=new Jedis("localhost",6380);
+	
+//	Jedis TSA1=new Jedis("localhost",6381);
+//	Jedis TSA2=new Jedis("localhost",6382);
+//	Jedis TSA3=new Jedis("localhost",6383);
+	static boolean isRecovery1=false; 
+	static boolean donotrecover1=false;
+	
+	static boolean isRecovery2=false; 
+	static boolean donotrecover2=false;
 	
 //	Jedis TSA=pool1.getResource();
-	static volatile int NvmIsUp=1;
-	static volatile AtomicBoolean failedmode=new AtomicBoolean(false);
-	boolean NVMinRecovery=false;
-	static AtomicBoolean first_time=new AtomicBoolean(true);
-	
+	static volatile int NvmIsUp1=1;
+	static volatile int NvmIsUp2=1;
+	static volatile AtomicBoolean failedmode1=new AtomicBoolean(false);
+	static volatile AtomicBoolean failedmode2=new AtomicBoolean(false);
+	boolean NVMinRecovery1=false;
+	boolean NVMinRecovery2=false;
+	static AtomicBoolean first_time1=new AtomicBoolean(true);
+	static AtomicBoolean first_time2=new AtomicBoolean(true);
 	
 	
 	static volatile AtomicBoolean deltaTSA0 = new AtomicBoolean(false);
 	static volatile AtomicBoolean deltaTSA1 = new AtomicBoolean(false);
-	static volatile AtomicBoolean deltaTSA2 = new AtomicBoolean(false);
-	static volatile AtomicBoolean deltaTSA3 = new AtomicBoolean(false);
+//	static volatile AtomicBoolean deltaTSA2 = new AtomicBoolean(false);
+//	static volatile AtomicBoolean deltaTSA3 = new AtomicBoolean(false);
 	
 
 	static volatile AtomicBoolean discardTSA0 = new AtomicBoolean(false);
 	static volatile AtomicBoolean discardTSA1 = new AtomicBoolean(false);
-	static volatile AtomicBoolean discardTSA2 = new AtomicBoolean(false);
-	static volatile AtomicBoolean discardTSA3 = new AtomicBoolean(false);
+//	static volatile AtomicBoolean discardTSA2 = new AtomicBoolean(false);
+//	static volatile AtomicBoolean discardTSA3 = new AtomicBoolean(false);
 	
+//	Properties p=getProperties();
+//	static int numberofnvms=Integer.parseInt(p.get)
+//	p.getOrDefault("normalmodetime", "10000000");
 	
 	
 	
@@ -86,7 +107,7 @@ public class MongoBGClient extends DB {
 	public static final String KEY_PENDING = "p";
 	public static final String KEY_MONGO_DB_IP = "mongoip";
 
-	public static final int LIST_FRIENDS = 10;
+	public static final int LIST_FRIENDS = Integer.MAX_VALUE;
 	
 	public static AtomicBoolean friendLoad = new AtomicBoolean(false);
 	public static AtomicBoolean createFriendship = new AtomicBoolean(false);
@@ -127,265 +148,390 @@ public class MongoBGClient extends DB {
 	@Override
 	public int viewProfile(int requesterID, int profileOwnerID, HashMap<String, ByteIterator> result,
 			boolean insertImage, boolean testMode) {
+		Properties p=getProperties();
+		int numberofnvms=Integer.parseInt(p.getProperty("numberofnvms"));
 		
-		int checkTSA=profileOwnerID%4;
+		int checkTSA=profileOwnerID%numberoftsas;
+		int checkNVM=profileOwnerID%numberofnvms;
 		//System.out.println("proID" + profileOwnerID+"mod 4: "+checkTSA);
 		Jedis currentTSA=null;
-		if(checkTSA==0)
-		{	//System.out.println("First TSA " + checkTSA);
+		Jedis currentNVM=null;
 		
-			currentTSA=TSA0;
-		}
-		else if(checkTSA==1)
-		{	//System.out.println("Second TSA " + checkTSA);
-			currentTSA=TSA1;
-		}
-		else if(checkTSA==2)
-		{	//System.out.println("Third TSA " + checkTSA);
-			currentTSA=TSA2;
-		}
-		else if(checkTSA==3)
-		{	//System.out.println("Fourth TSA " + checkTSA);
-			currentTSA=TSA3;
-		}
-		
-		if(NvmIsUp==1)
+		 
+		for(int i=0;i<numberofnvms;i++)
 		{
-			
-			String value = NVM.get(Integer.toString(profileOwnerID));
-		
-		if(value==null)
-		{
-		//System.out.println("Cache Miss");
-		MongoCollection<Document> coll = this.mongoClient.getDatabase(MONGO_DB_NAME)
-				.getCollection(MONGO_USER_COLLECTION);
-
-		List<Bson> queries = new ArrayList<Bson>();
-		queries.add(new BasicDBObject("$match",
-				new BasicDBObject("_id", new BasicDBObject("$eq", String.valueOf(profileOwnerID)))));
-		
-		
-		BasicDBObject obj = new BasicDBObject();
-		obj.put("f", new BasicDBObject("$size", "$f"));
-		obj.put("p", new BasicDBObject("$size", "$p"));
-		obj.put("username", 1);
-		obj.put("pw", 1);
-		obj.put("fname", 1);
-		obj.put("lname", 1);
-		obj.put("gender", 1);
-		obj.put("dob", 1);
-		obj.put("jdate", 1);
-		obj.put("ldate", 1);
-		obj.put("address", 1);
-		obj.put("email", 1);
-		obj.put("tel", 1);
-		BasicDBObject bobj = new BasicDBObject("$project", obj);
-		queries.add(bobj);
-
-		//System.out.println("Queries After bobj"+queries);
-		
-		Document userProfile = coll.aggregate(queries).first();
-		//System.out.println("UserProfile" +  userProfile);
-		result.put("userid", new ObjectByteIterator(String.valueOf(profileOwnerID).getBytes()));
-
-		//System.out.println("Result"+result);
-		StringBuilder sb=new StringBuilder();
-		userProfile.forEach((k, v) -> {
-			if (!KEY_FRIEND.equals(k) && !KEY_PENDING.equals(k)) {
-				result.put(k, new ObjectByteIterator(String.valueOf(v).getBytes()));
-			}
-		});
-
-		
-		
-		result.put("friendcount", new ObjectByteIterator(String.valueOf(userProfile.get(KEY_FRIEND)).getBytes()));
-		if (requesterID == profileOwnerID) {
-			result.put("pendingcount", new ObjectByteIterator(String.valueOf(userProfile.get(KEY_PENDING)).getBytes()));
-//			sb.append("pendingcount"+"="+result.get("pendingcount").toString());
-		}
-		
-//		System.exit(1);
-		
-		Set<String> StoredKeys = result.keySet();
-		//System.out.println("print hashmap profile zone "+result.toString());
-		
-		
-		
-		for(String x: StoredKeys)
-		{
-			
-			
-			
-//---------------Changed By Kaushal on Nov 10---------------//			
-			if(x.equals("p"))
-			{
-				NVM.set("p_"+Integer.toString(profileOwnerID), result.get(x).toString());
-				currentTSA.set("p_"+Integer.toString(profileOwnerID), result.get(x).toString());
-				System.out.println("pointer "+currentTSA);
-				sb.append(x+"="+result.get(x).toString());
-			}
-			else if(x.equals("f"))
-			{
-				NVM.set("f_"+Integer.toString(profileOwnerID), result.get(x).toString());
-				currentTSA.set("f_"+Integer.toString(profileOwnerID), result.get(x).toString());
-				sb.append(x+"="+result.get(x).toString());
-			}
-			else
-			{
-				sb.append(x+"="+result.get(x).toString());
-				
-			}
-
-//---------------Changed By Kaushal on Nov 10---------------//		
-			
-			
-			sb.append("USCVILLAGE");
-		}
-		NVM.set(Integer.toString(profileOwnerID),sb.toString());
-		currentTSA.set(Integer.toString(profileOwnerID),sb.toString());
-		}
-	
-		
-		else
-		{
-//			System.out.println("Cache Hit");
-			
-			value = value.substring(1, value.length()-1);    
-			String[] keyValuePairs = value.split("USCVILLAGE");  
-				
-			for(String pair : keyValuePairs)      
-			{
-			    String[] entry = pair.split("=");  
-			    if(entry[0].equals("friendcount"))
-			    {
-			    	result.put(entry[0].trim(), new ObjectByteIterator(String.valueOf(NVM.smembers("f_"+profileOwnerID).size()).getBytes())); 
-			    }
-			    else if(entry[0].equals("pendingcount"))
-			    {
-			    	result.put(entry[0].trim(), new ObjectByteIterator(String.valueOf(NVM.smembers("p_"+profileOwnerID).size()).getBytes())); 
-			    }
-			    else
-			    {
-			    	result.put(entry[0].trim(), new ObjectByteIterator(String.valueOf(entry[1].trim()).getBytes()));         
-			    }
-			}
-		}
-	}
-		
-		else if(NvmIsUp==2)
-		{
-			String value = currentTSA.get(Integer.toString(profileOwnerID));
-			
-			if(value==null)
-			{
-			//System.out.println("Cache Miss");
-			MongoCollection<Document> coll = this.mongoClient.getDatabase(MONGO_DB_NAME)
-					.getCollection(MONGO_USER_COLLECTION);
-
-			List<Bson> queries = new ArrayList<Bson>();
-			queries.add(new BasicDBObject("$match",
-					new BasicDBObject("_id", new BasicDBObject("$eq", String.valueOf(profileOwnerID)))));
-			
-			
-			BasicDBObject obj = new BasicDBObject();
-			obj.put("f", new BasicDBObject("$size", "$f"));
-			obj.put("p", new BasicDBObject("$size", "$p"));
-			obj.put("username", 1);
-			obj.put("pw", 1);
-			obj.put("fname", 1);
-			obj.put("lname", 1);
-			obj.put("gender", 1);
-			obj.put("dob", 1);
-			obj.put("jdate", 1);
-			obj.put("ldate", 1);
-			obj.put("address", 1);
-			obj.put("email", 1);
-			obj.put("tel", 1);
-			BasicDBObject bobj = new BasicDBObject("$project", obj);
-			queries.add(bobj);
-
-			//System.out.println("Queries After bobj"+queries);
-			
-			Document userProfile = coll.aggregate(queries).first();
-			//System.out.println("UserProfile" +  userProfile);
-			result.put("userid", new ObjectByteIterator(String.valueOf(profileOwnerID).getBytes()));
-
-			//System.out.println("Result"+result);
-			
-			userProfile.forEach((k, v) -> {
-				if (!KEY_FRIEND.equals(k) && !KEY_PENDING.equals(k)) {
-					result.put(k, new ObjectByteIterator(String.valueOf(v).getBytes()));
-				}
-			});
-
-			
-			
-			result.put("friendcount", new ObjectByteIterator(String.valueOf(userProfile.get(KEY_FRIEND)).getBytes()));
-			if (requesterID == profileOwnerID) {
-				result.put("pendingcount", new ObjectByteIterator(String.valueOf(userProfile.get(KEY_PENDING)).getBytes()));
-			}
-			
-//			System.exit(1);
-			
-			Set<String> StoredKeys = result.keySet();
-			
-			StringBuilder sb=new StringBuilder();
-			
-			for(String x: StoredKeys)
-			{
-				
-				
-				
-	//---------------Changed By Kaushal on Nov 10---------------//			
-				if(x.equals("p"))
+			if(checkNVM==i)
+			{ 
+				currentNVM=new Jedis("localhost",6379+i);
+				if(checkTSA==0)
 				{
-					currentTSA.set("p_"+Integer.toString(profileOwnerID), result.get(x).toString());
-				}
-				else if(x.equals("f"))
-				{
-					currentTSA.set("f_"+Integer.toString(profileOwnerID), result.get(x).toString());
+					currentTSA=new Jedis("localhost",6383);
 				}
 				else
 				{
-					sb.append(x+"="+result.get(x).toString());	
-				}
-
-	//---------------Changed By Kaushal on Nov 10---------------//		
-				
-				
-				sb.append("USCVILLAGE");
-			}
-			currentTSA.set(Integer.toString(profileOwnerID),sb.toString());
-			}
-		
-			
-			else
-			{
-//				System.out.println("Cache Hit");
-				
-				value = value.substring(1, value.length()-1);    
-				String[] keyValuePairs = value.split("USCVILLAGE");  
-					
-				for(String pair : keyValuePairs)      
-				{
-				    String[] entry = pair.split("=");                   
-				    result.put(entry[0].trim(), new ObjectByteIterator(String.valueOf(entry[1].trim()).getBytes()));   
-				    if(entry[0].equals("friendcount"))
-				    {
-				    	result.put(entry[0].trim(), new ObjectByteIterator(String.valueOf(currentTSA.smembers("f_"+profileOwnerID).size()).getBytes())); 
-				    }
-				    else if(entry[0].equals("pendingcount"))
-				    {
-				    	result.put(entry[0].trim(), new ObjectByteIterator(String.valueOf(currentTSA.smembers("p_"+profileOwnerID).size()).getBytes())); 
-				    }
-				    else
-				    {
-				    	result.put(entry[0].trim(), new ObjectByteIterator(String.valueOf(entry[1].trim()).getBytes()));         
-				    }
+					currentTSA=new Jedis("localhost",6384);
 				}
 			}
 		}
-		else if(NvmIsUp==3)
+		
+//		if(checkTSA==0)
+//		{	
+//			currentTSA=TSA1;
+//			currentNVM=NVM1;
+//			currentNVMisUp=NvmIsUp1;
+//		}
+//		else if(checkTSA==1)
+//		{	//System.out.println("Second TSA " + checkTSA);
+//			currentTSA=TSA2;
+//			currentNVM=NVM2;
+//			currentNVMisUp=NvmIsUp2;
+//		}
+//		if(checkTSA==2)
+//		{	
+//			currentTSA=TSA1;
+//			currentNVM=NVM1;
+//			currentNVMisUp=NvmIsUp1;
+//		}
+//		else if(checkTSA==3)
+//		{	//System.out.println("Second TSA " + checkTSA);
+//			currentTSA=TSA2;
+//			currentNVM=NVM2;
+//			currentNVMisUp=NvmIsUp2;
+//		}
+//		else if(checkTSA==2)
+//		{	//System.out.println("Third TSA " + checkTSA);
+//			currentTSA=TSA2;
+//		}
+//		else if(checkTSA==3)
+//		{	//System.out.println("Fourth TSA " + checkTSA);
+//			currentTSA=TSA3;
+//		}
+		
+		if(NvmIsUp1==1)
+		{
+			
+			boolean checkfriendcount=currentNVM.exists(Integer.toString(profileOwnerID)+"_friendcount");
+			boolean checkpendingcount=currentNVM.exists(Integer.toString(profileOwnerID)+"_pendingcount");
+			boolean checkpendinglist=currentNVM.exists(Integer.toString(profileOwnerID)+"_pendinglist");
+			boolean checkfriendlist=currentNVM.exists(Integer.toString(profileOwnerID)+"_friendlist");
+			if(checkfriendcount && checkpendingcount && checkpendinglist && checkfriendlist)
+			{
+					String value = currentNVM.get(Integer.toString(profileOwnerID)+"_friendcount");
+					String value1 = currentNVM.get(Integer.toString(profileOwnerID)+"_pendingcount");
+		
+					Set<String> value2 = currentNVM.smembers(Integer.toString(profileOwnerID)+"_pendinglist");
+					Set<String> value3 = currentNVM.smembers(Integer.toString(profileOwnerID)+"_friendlist");
+					
+					
+					
+				
+				if(Integer.parseInt(value)==0 || Integer.parseInt(value1)==0 || value2.size()==0|| value2.size()==0)
+				{
+				//System.out.println("Cache Miss");
+				MongoCollection<Document> coll = this.mongoClient.getDatabase(MONGO_DB_NAME)
+						.getCollection(MONGO_USER_COLLECTION);
+		
+				List<Bson> queries = new ArrayList<Bson>();
+				queries.add(new BasicDBObject("$match",
+						new BasicDBObject("_id", new BasicDBObject("$eq", String.valueOf(profileOwnerID)))));
+				
+				
+				BasicDBObject obj = new BasicDBObject();
+				obj.put("f", new BasicDBObject("$size", "$f"));
+				obj.put("p", new BasicDBObject("$size", "$p"));
+				obj.put("username", 1);
+				obj.put("pw", 1);
+				obj.put("fname", 1);
+				obj.put("lname", 1);
+				obj.put("gender", 1);
+				obj.put("dob", 1);
+				obj.put("jdate", 1);
+				obj.put("ldate", 1);
+				obj.put("address", 1);
+				obj.put("email", 1);
+				obj.put("tel", 1);
+				BasicDBObject bobj = new BasicDBObject("$project", obj);
+				queries.add(bobj);
+		
+				//System.out.println("Queries After bobj"+queries);
+				
+				Document userProfile = coll.aggregate(queries).first();
+				//System.out.println("UserProfile" +  userProfile);
+				result.put("userid", new ObjectByteIterator(String.valueOf(profileOwnerID).getBytes()));
+		
+				//System.out.println("Result"+result);
+		
+				
+				
+				HashMap<String,String> h=new HashMap<>();
+				userProfile.forEach((k, v) -> {
+					
+					if (!KEY_FRIEND.equals(k) && !KEY_PENDING.equals(k)) {
+						result.put(k, new ObjectByteIterator(String.valueOf(v).getBytes()));
+					}
+					else if(k.equals("f"))
+						{
+							h.put(Integer.toString(profileOwnerID)+"_friendcount", v.toString());			
+						}
+					else if(k.equals("p"))
+						{
+							h.put(Integer.toString(profileOwnerID)+"_pendingcount", v.toString());	
+						}
+						
+				});
+				currentNVM.set(Integer.toString(profileOwnerID)+"_friendcount", h.get(Integer.toString(profileOwnerID)+"_friendcount"));
+				currentNVM.set(Integer.toString(profileOwnerID)+"_pendingcount", h.get(Integer.toString(profileOwnerID)+"_pendingcount"));
+				
+				currentTSA.set(Integer.toString(profileOwnerID)+"_friendcount",currentNVM.get(Integer.toString(profileOwnerID)+"_friendcount"));
+				currentTSA.set(Integer.toString(profileOwnerID)+"_pendingcount",currentNVM.get(Integer.toString(profileOwnerID)+"_pendingcount"));
+		
+				
+				result.put("friendcount", new ObjectByteIterator(String.valueOf(userProfile.get(KEY_FRIEND)).getBytes()));
+		
+				if (requesterID == profileOwnerID) {
+					result.put("pendingcount", new ObjectByteIterator(String.valueOf(userProfile.get(KEY_PENDING)).getBytes()));
+				}
+			
+			} 
+			
+	
+		
+				else
+				{
+					result.put("friendcount", new ObjectByteIterator(Integer.toString(currentNVM.smembers(profileOwnerID+"_friendlist").size()).getBytes()));
+					result.put("pendingcount", new ObjectByteIterator(Integer.toString(currentNVM.smembers(profileOwnerID+"_pendinglist").size()).getBytes()));
+					
+				}
+			}
+			else
+			{
+				MongoCollection<Document> coll = this.mongoClient.getDatabase(MONGO_DB_NAME)
+						.getCollection(MONGO_USER_COLLECTION);
+		
+				List<Bson> queries = new ArrayList<Bson>();
+				queries.add(new BasicDBObject("$match",
+						new BasicDBObject("_id", new BasicDBObject("$eq", String.valueOf(profileOwnerID)))));
+				
+				
+				BasicDBObject obj = new BasicDBObject();
+				obj.put("f", new BasicDBObject("$size", "$f"));
+				obj.put("p", new BasicDBObject("$size", "$p"));
+				obj.put("username", 1);
+				obj.put("pw", 1);
+				obj.put("fname", 1);
+				obj.put("lname", 1);
+				obj.put("gender", 1);
+				obj.put("dob", 1);
+				obj.put("jdate", 1);
+				obj.put("ldate", 1);
+				obj.put("address", 1);
+				obj.put("email", 1);
+				obj.put("tel", 1);
+				BasicDBObject bobj = new BasicDBObject("$project", obj);
+				queries.add(bobj);
+		
+				//System.out.println("Queries After bobj"+queries);
+				
+				Document userProfile = coll.aggregate(queries).first();
+				//System.out.println("UserProfile" +  userProfile);
+				result.put("userid", new ObjectByteIterator(String.valueOf(profileOwnerID).getBytes()));
+		
+				//System.out.println("Result"+result);
+		
+				HashMap<String,String> h=new HashMap<>();
+		
+				userProfile.forEach((k, v) -> {
+					
+					if (!KEY_FRIEND.equals(k) && !KEY_PENDING.equals(k)) {
+						result.put(k, new ObjectByteIterator(String.valueOf(v).getBytes()));
+					}
+					else if(k.equals("f"))
+						{
+							h.put(Integer.toString(profileOwnerID)+"_friendcount", v.toString());			
+						}
+					else if(k.equals("p"))
+						{
+							h.put(Integer.toString(profileOwnerID)+"_pendingcount", v.toString());	
+						}
+						
+				});
+				
+				currentNVM.set(Integer.toString(profileOwnerID)+"_friendcount", h.get(Integer.toString(profileOwnerID)+"_friendcount"));
+				currentNVM.set(Integer.toString(profileOwnerID)+"_pendingcount", h.get(Integer.toString(profileOwnerID)+"_pendingcount"));
+				
+				
+				 
+				
+				
+				currentTSA.set(Integer.toString(profileOwnerID)+"_friendcount",currentNVM.get(Integer.toString(profileOwnerID)+"_friendcount"));
+				currentTSA.set(Integer.toString(profileOwnerID)+"_pendingcount",currentNVM.get(Integer.toString(profileOwnerID)+"_pendingcount"));
+		
+				
+				result.put("friendcount", new ObjectByteIterator(String.valueOf(userProfile.get(KEY_FRIEND)).getBytes()));
+		
+				if (requesterID == profileOwnerID) {
+					result.put("pendingcount", new ObjectByteIterator(String.valueOf(userProfile.get(KEY_PENDING)).getBytes()));
+				}
+			
+			}
+	}
+		
+		else if(NvmIsUp1==2)
+		{
+			boolean checkfriendcount=currentTSA.exists(Integer.toString(profileOwnerID)+"_friendcount");
+			boolean checkpendingcount=currentTSA.exists(Integer.toString(profileOwnerID)+"_pendingcount");
+			boolean checkpendinglist=currentTSA.exists(Integer.toString(profileOwnerID)+"_pendinglist");
+			boolean checkfriendlist=currentTSA.exists(Integer.toString(profileOwnerID)+"_friendlist");
+			if(checkfriendcount && checkpendingcount && checkpendinglist && checkfriendlist)
+			{
+					String value = currentTSA.get(Integer.toString(profileOwnerID)+"_friendcount");
+					String value1 = currentTSA.get(Integer.toString(profileOwnerID)+"_pendingcount");
+		
+					Set<String> value2 = currentTSA.smembers(Integer.toString(profileOwnerID)+"_pendinglist");
+					Set<String> value3 = currentTSA.smembers(Integer.toString(profileOwnerID)+"_friendlist");
+					
+					
+					
+				
+				if(Integer.parseInt(value)==0 || Integer.parseInt(value1)==0 || value2.size()==0|| value2.size()==0)
+				{
+				//System.out.println("Cache Miss");
+				MongoCollection<Document> coll = this.mongoClient.getDatabase(MONGO_DB_NAME)
+						.getCollection(MONGO_USER_COLLECTION);
+		
+				List<Bson> queries = new ArrayList<Bson>();
+				queries.add(new BasicDBObject("$match",
+						new BasicDBObject("_id", new BasicDBObject("$eq", String.valueOf(profileOwnerID)))));
+				
+				
+				BasicDBObject obj = new BasicDBObject();
+				obj.put("f", new BasicDBObject("$size", "$f"));
+				obj.put("p", new BasicDBObject("$size", "$p"));
+				obj.put("username", 1);
+				obj.put("pw", 1);
+				obj.put("fname", 1);
+				obj.put("lname", 1);
+				obj.put("gender", 1);
+				obj.put("dob", 1);
+				obj.put("jdate", 1);
+				obj.put("ldate", 1);
+				obj.put("address", 1);
+				obj.put("email", 1);
+				obj.put("tel", 1);
+				BasicDBObject bobj = new BasicDBObject("$project", obj);
+				queries.add(bobj);
+		
+				//System.out.println("Queries After bobj"+queries);
+				
+				Document userProfile = coll.aggregate(queries).first();
+				//System.out.println("UserProfile" +  userProfile);
+				result.put("userid", new ObjectByteIterator(String.valueOf(profileOwnerID).getBytes()));
+		
+				//System.out.println("Result"+result);
+		
+				HashMap<String,String> h=new HashMap<>();
+		
+				userProfile.forEach((k, v) -> {
+					
+					if (!KEY_FRIEND.equals(k) && !KEY_PENDING.equals(k)) {
+						result.put(k, new ObjectByteIterator(String.valueOf(v).getBytes()));
+					}
+					else if(k.equals("f"))
+						{
+							h.put(Integer.toString(profileOwnerID)+"_friendcount", v.toString());			
+						}
+					else if(k.equals("p"))
+						{
+							h.put(Integer.toString(profileOwnerID)+"_pendingcount", v.toString());	
+						}
+						
+				});
+				currentTSA.set(Integer.toString(profileOwnerID)+"_friendcount",h.get(Integer.toString(profileOwnerID)+"_friendcount"));
+				currentTSA.set(Integer.toString(profileOwnerID)+"_pendingcount",h.get(Integer.toString(profileOwnerID)+"_pendingcount"));
+		
+				
+				result.put("friendcount", new ObjectByteIterator(String.valueOf(userProfile.get(KEY_FRIEND)).getBytes()));
+				
+				if (requesterID == profileOwnerID) {
+					result.put("pendingcount", new ObjectByteIterator(String.valueOf(userProfile.get(KEY_PENDING)).getBytes()));
+				}
+			
+			}
+			
+				
+		
+				else
+				{
+					result.put("friendcount", new ObjectByteIterator(Integer.toString(currentTSA.smembers(profileOwnerID+"_friendlist").size()).getBytes()));
+					result.put("pendingcount", new ObjectByteIterator(Integer.toString(currentTSA.smembers(profileOwnerID+"_pendinglist").size()).getBytes()));
+					
+				}
+			}
+			else
+			{
+				MongoCollection<Document> coll = this.mongoClient.getDatabase(MONGO_DB_NAME)
+						.getCollection(MONGO_USER_COLLECTION);
+		
+				List<Bson> queries = new ArrayList<Bson>();
+				queries.add(new BasicDBObject("$match",
+						new BasicDBObject("_id", new BasicDBObject("$eq", String.valueOf(profileOwnerID)))));
+				
+				
+				BasicDBObject obj = new BasicDBObject();
+				obj.put("f", new BasicDBObject("$size", "$f"));
+				obj.put("p", new BasicDBObject("$size", "$p"));
+				obj.put("username", 1);
+				obj.put("pw", 1);
+				obj.put("fname", 1);
+				obj.put("lname", 1);
+				obj.put("gender", 1);
+				obj.put("dob", 1);
+				obj.put("jdate", 1);
+				obj.put("ldate", 1);
+				obj.put("address", 1);
+				obj.put("email", 1);
+				obj.put("tel", 1);
+				BasicDBObject bobj = new BasicDBObject("$project", obj);
+				queries.add(bobj);
+		
+				//System.out.println("Queries After bobj"+queries);
+				
+				Document userProfile = coll.aggregate(queries).first();
+				//System.out.println("UserProfile" +  userProfile);
+				result.put("userid", new ObjectByteIterator(String.valueOf(profileOwnerID).getBytes()));
+		
+				//System.out.println("Result"+result);
+		
+				HashMap<String,String> h=new HashMap<>();
+		
+				userProfile.forEach((k, v) -> {
+					
+					if (!KEY_FRIEND.equals(k) && !KEY_PENDING.equals(k)) {
+						result.put(k, new ObjectByteIterator(String.valueOf(v).getBytes()));
+					}
+					else if(k.equals("f"))
+						{
+							h.put(Integer.toString(profileOwnerID)+"_friendcount", v.toString());			
+						}
+					else if(k.equals("p"))
+						{
+							h.put(Integer.toString(profileOwnerID)+"_pendingcount", v.toString());	
+						}
+						
+				});
+				currentTSA.set(Integer.toString(profileOwnerID)+"_friendcount",h.get(Integer.toString(profileOwnerID)+"_friendcount"));
+				currentTSA.set(Integer.toString(profileOwnerID)+"_pendingcount",h.get(Integer.toString(profileOwnerID)+"_pendingcount"));
+		
+				
+				result.put("friendcount", new ObjectByteIterator(String.valueOf(userProfile.get(KEY_FRIEND)).getBytes()));
+		
+				if (requesterID == profileOwnerID) {
+					result.put("pendingcount", new ObjectByteIterator(String.valueOf(userProfile.get(KEY_PENDING)).getBytes()));
+				}
+			
+			}
+		}
+		else if(NvmIsUp1==3)
 		{
 			MongoCollection<Document> coll = this.mongoClient.getDatabase(MONGO_DB_NAME)
 					.getCollection(MONGO_USER_COLLECTION);
@@ -445,66 +591,94 @@ public class MongoBGClient extends DB {
 	@Override
 	public int listFriends(int requesterID, int profileOwnerID, Set<String> fields,
 			Vector<HashMap<String, ByteIterator>> result, boolean insertImage, boolean testMode) {
-		int checkTSA=profileOwnerID%4;
+		
+		Properties p=getProperties();
+		int numberofnvms=Integer.parseInt(p.getProperty("numberofnvms"));
+		
+		int checkTSA=profileOwnerID%numberoftsas;
+		int checkNVM=profileOwnerID%numberofnvms;
 		//System.out.println("proID" + profileOwnerID+"mod 4: "+checkTSA);
 		Jedis currentTSA=null;
-		if(checkTSA==0)
-		{	//System.out.println("First TSA " + checkTSA);
+		Jedis currentNVM=null;
 		
-			currentTSA=TSA0;
+		
+		for(int i=0;i<numberofnvms;i++)
+		{ 
+			if(checkNVM==i)
+			{
+				currentNVM=new Jedis("localhost",6379+i);
+				if(checkTSA==0)
+				{
+					currentTSA=new Jedis("localhost",6383);
+				}
+				else
+				{
+					currentTSA=new Jedis("localhost",6384);
+				}
+			}
 		}
-		else if(checkTSA==1)
-		{	//System.out.println("Second TSA " + checkTSA);
-			currentTSA=TSA1;
-		}
-		else if(checkTSA==2)
-		{	//System.out.println("Third TSA " + checkTSA);
-			currentTSA=TSA2;
-		}
-		else if(checkTSA==3)
-		{	
-			currentTSA=TSA3;
-		}
+//		else if(checkTSA==2)
+//		{	
+//			currentTSA=TSA2;
+//		}
+//		else if(checkTSA==3)
+//		{	
+//			currentTSA=TSA3;
+//		}
 
-		if(NvmIsUp==1)
-		{
+		if(NvmIsUp1==1)
+		{	
+			boolean callPstore = false;
+			boolean friendlistexists=currentNVM.exists(Integer.toString(profileOwnerID)+"_friendlist");
 			
-		boolean callPstore = false;
-		HashSet<String> values = (HashSet<String>) NVM.smembers("f_"+profileOwnerID);
-		if(values.size()==0)
-		{
-			//System.out.println("Miss");
-			callPstore = true;
-		}
+			Set<String> values=currentNVM.smembers(Integer.toString(profileOwnerID)+"_friendlist");
+			if(!friendlistexists || values.size()==0)
+			{
+				callPstore = true;
+			}
 		else
 		{
 			int flag = 0;
 			for(String i: values)
 			{
-				String value = NVM.get(i);
-				//System.out.println("NVM GET VALUE:" + value);
-				if(value==null || value.length()==0)
+				boolean friendcountexists=currentNVM.exists(i+"_friendcount");
+				boolean pendingcountexists=currentNVM.exists(i+"_pendingcount");
+				boolean friendlistexists1=currentNVM.exists(i+"_friendlist");
+				boolean pendinglistexists1=currentNVM.exists(i+"_pendinglist");
+				
+				if(!friendcountexists || !pendingcountexists || !friendlistexists1 || pendinglistexists1)
 				{
-					//System.out.println("Miss");
+					callPstore=true; 
+					break;
+				}
+				String value1 = currentNVM.get(i+"_friendcount");
+				String value2=currentNVM.get(i+"_pendingcount");
+				
+				
+				Set<String> friendlist_current=currentNVM.smembers(i+"_friendlist");
+				Set<String> pendinglist_current=currentNVM.smembers(i+"_pendinglist");
+				//System.out.println("NVM GET VALUE:" + value);
+				if(Integer.parseInt(value1)==0 || Integer.parseInt(value2)==0 || friendlist_current.size()==0 || pendinglist_current.size()==0)
+				{
 					callPstore = true;
 					flag =1;
 					break;
 				}
-				value = value.substring(1, value.length()-1);    
-				String[] keyValuePairs = value.split("USCVILLAGE");  
+				//value = value.substring(1, value.length()-1);    
 				HashMap<String, ByteIterator> oneFriendsDoc = new HashMap<String, ByteIterator>();	
-				for(String pair : keyValuePairs)      
-				{
-				    String[] entry = pair.split("=");                   
-				    oneFriendsDoc.put(entry[0].trim(), new ObjectByteIterator(String.valueOf(entry[1].trim()).getBytes()));         
-				}
+//				for(String pair : keyValuePairs)      
+//				{
+//				    String[] entry = pair.split("=");                   
+//				    oneFriendsDoc.put(entry[0].trim(), new ObjectByteIterator(String.valueOf(entry[1].trim()).getBytes()));         
+//				}
 				
+				oneFriendsDoc.put("friendcount", new ObjectByteIterator(Integer.toString(friendlist_current.size()).getBytes()));
+				oneFriendsDoc.put("pendingcount", new ObjectByteIterator(Integer.toString(pendinglist_current.size()).getBytes()));
 				result.add(oneFriendsDoc);
-				
 			}
 		}
-		
-		
+		 
+		 
 		if(callPstore)
 		{
 			result.removeAllElements();
@@ -544,83 +718,143 @@ public class MongoBGClient extends DB {
 	
 			MongoCursor<Document> friendsDocs = coll.aggregate(queries).iterator();
 			
-			String CONSTANT_USC_VILLAGE_INSIDE_HASHMAP="USC_VILLAGE";
-			String CONSTANT_USC_MONGO_INSIDE_VECTOR="USC_MONGO_VILLAGE";
 			
 			
 			while (friendsDocs.hasNext()) {
-				StringBuilder sbtemp=new StringBuilder();
 				Document doc = friendsDocs.next();
 				HashMap<String, ByteIterator> val = new HashMap<String, ByteIterator>();
 				val.put("userid", new ObjectByteIterator(doc.getString("_id").getBytes()));
 				
-				NVM.sadd("f_"+Integer.toString(profileOwnerID),doc.getString("_id") );
-				currentTSA.sadd("f_"+Integer.toString(profileOwnerID),doc.getString("_id") );
-				
-				sbtemp.append("userid"+CONSTANT_USC_VILLAGE_INSIDE_HASHMAP+new ObjectByteIterator(doc.getString("_id").getBytes()).toString());
-	
+				currentNVM.sadd(Integer.toString(profileOwnerID)+"_friendlist",doc.getString("_id") );
+				currentTSA.sadd(Integer.toString(profileOwnerID)+"_friendlist",doc.getString("_id") );
+
 				doc.forEach((k, v) -> {
 					if (!KEY_FRIEND.equals(k) && !KEY_PENDING.equals(k)) {
 						val.put(k, new ObjectByteIterator(String.valueOf(v).getBytes()));
-						sbtemp.append(k+CONSTANT_USC_VILLAGE_INSIDE_HASHMAP+new ObjectByteIterator(String.valueOf(v).getBytes()).toString());
+						//sbtemp.append(k+CONSTANT_USC_VILLAGE_INSIDE_HASHMAP+new ObjectByteIterator(String.valueOf(v).getBytes()).toString());
 					}
 				});
 				
 				val.put("friendcount",
 						new ObjectByteIterator(String.valueOf(doc.get(KEY_FRIEND)).getBytes()));
 				
-				sbtemp.append("friendcount"+CONSTANT_USC_VILLAGE_INSIDE_HASHMAP+String.valueOf(doc.get(KEY_FRIEND)));
-				sbtemp.append(CONSTANT_USC_MONGO_INSIDE_VECTOR);
-				
-				NVM.set(doc.getString("_id") , sbtemp.toString());
-				currentTSA.set(doc.getString("_id") , sbtemp.toString());
+
 				
 				result.add(val);
 			}
 			
 			
 			
+			//TAKING PENDING FRIEND LIST CODE
+//			List<Bson> list2 = new ArrayList<>();
+//			list2.add(new BasicDBObject("$match",
+//					new BasicDBObject("_id", new BasicDBObject("$eq", String.valueOf(profileOwnerID)))));
+//			BasicDBList field2 = new BasicDBList();
+//			field2.add("$p");
+//			field2.add(0);
+//			field2.add(LIST_FRIENDS);
+//			BasicDBObject bobj2 = new BasicDBObject("$project", new BasicDBObject("p", new BasicDBObject("$slice", field2)));
+//			list2.add(bobj2);
+//			Document userProfile2 = coll.aggregate(list2).first();
+//			List<String> friends2 = userProfile2.get(KEY_PENDING, List.class);
+//	
+//			List<Bson> queries2 = new ArrayList<Bson>();
+//			queries2.add(new BasicDBObject("$match", new BasicDBObject("_id", new BasicDBObject("$in", friends2))));
+//			BasicDBObject obj2 = new BasicDBObject();
+//			obj2.put("p", new BasicDBObject("$size", "$p"));
+//			obj2.put("username", 1);
+//			obj2.put("pw", 1);
+//			obj2.put("fname", 1);
+//			obj2.put("lname", 1);
+//			obj2.put("gender", 1);
+//			obj2.put("dob", 1);
+//			obj2.put("jdate", 1);
+//			obj2.put("ldate", 1);
+//			obj2.put("address", 1);
+//			obj2.put("email", 1);
+//			obj2.put("tel", 1);
+//			bobj2 = new BasicDBObject("$project", obj2);
+//			queries2.add(bobj2);
+//			queries2.add(new BasicDBObject("$limit", LIST_FRIENDS));
+//	
+//			MongoCursor<Document> friendsDocs2 = coll.aggregate(queries2).iterator();
+//			
+//			
+//			
+//			while (friendsDocs2.hasNext()) {
+//				Document doc = friendsDocs2.next();
+//	
+//				NVM.sadd(Integer.toString(profileOwnerID)+"_pendinglist",doc.getString("_id") );
+//				currentTSA.sadd(Integer.toString(profileOwnerID)+"_pendinglist",doc.getString("_id") );
+//
+//				doc.forEach((k, v) -> {
+//					if (!KEY_FRIEND.equals(k) && !KEY_PENDING.equals(k)) {
+//						
+//						//sbtemp.append(k+CONSTANT_USC_VILLAGE_INSIDE_HASHMAP+new ObjectByteIterator(String.valueOf(v).getBytes()).toString());
+//					}
+//				});
+//			}
+			
+			
 			
 			friendsDocs.close();
+//			friendsDocs2.close();
 		}
 		
 		}
-		else if(NvmIsUp==2)
+		else if(NvmIsUp1==2)
 		{
-			boolean callPstore=false;
-			HashSet<String> values = (HashSet<String>) currentTSA.smembers("f_"+profileOwnerID);
-			if(values.size()==0)
+			boolean callPstore = false;
+			boolean friendlistexists=currentTSA.exists(Integer.toString(profileOwnerID)+"_friendlist"); 
+			
+			Set<String> values=currentTSA.smembers(Integer.toString(profileOwnerID)+"_friendlist");
+			if(!friendlistexists || values.size()==0)
 			{
-				//System.out.println("Miss");
-				callPstore = true;
+				callPstore = true; 
 			}
 			else
 			{
 				int flag = 0;
 				for(String i: values)
 				{
-					String value = currentTSA.get(i);
-					//System.out.println("NVM GET VALUE:" + value);
-					if(value==null || value.length()==0)
+					boolean friendcountexists=currentTSA.exists(i+"_friendcount");
+					boolean pendingcountexists=currentTSA.exists(i+"_pendingcount");
+					boolean friendlistexists1=currentTSA.exists(i+"_friendlist");
+					boolean pendinglistexists1=currentTSA.exists(i+"_pendinglist");
+					
+					if(!friendcountexists || !pendingcountexists || !friendlistexists1 || pendinglistexists1)
 					{
-						//System.out.println("Miss");
+						callPstore=true; 
+						break;
+					}
+					String value1 = currentTSA.get(i+"_friendcount");
+					String value2=currentTSA.get(i+"_pendingcount");
+					
+					
+					Set<String> friendlist_current=currentTSA.smembers(i+"_friendlist");
+					Set<String> pendinglist_current=currentTSA.smembers(i+"_pendinglist");
+					//System.out.println("NVM GET VALUE:" + value);
+					if(Integer.parseInt(value1)==0 || Integer.parseInt(value2)==0 || friendlist_current.size()==0 || pendinglist_current.size()==0)
+					{
 						callPstore = true;
 						flag =1;
 						break;
 					}
-					value = value.substring(1, value.length()-1);    
-					String[] keyValuePairs = value.split("USCVILLAGE");  
+					//value = value.substring(1, value.length()-1);    
 					HashMap<String, ByteIterator> oneFriendsDoc = new HashMap<String, ByteIterator>();	
-					for(String pair : keyValuePairs)      
-					{
-					    String[] entry = pair.split("=");                   
-					    oneFriendsDoc.put(entry[0].trim(), new ObjectByteIterator(String.valueOf(entry[1].trim()).getBytes()));         
-					}
+//					for(String pair : keyValuePairs)      
+//					{
+//					    String[] entry = pair.split("=");                   
+//					    oneFriendsDoc.put(entry[0].trim(), new ObjectByteIterator(String.valueOf(entry[1].trim()).getBytes()));         
+//					}
 					
+					oneFriendsDoc.put("friendcount", new ObjectByteIterator(Integer.toString(friendlist_current.size()).getBytes()));
+					oneFriendsDoc.put("pendingcount", new ObjectByteIterator(Integer.toString(pendinglist_current.size()).getBytes()));
 					result.add(oneFriendsDoc);
-					
 				}
 			}
+			 
+			 
 			if(callPstore)
 			{
 				result.removeAllElements();
@@ -660,44 +894,35 @@ public class MongoBGClient extends DB {
 		
 				MongoCursor<Document> friendsDocs = coll.aggregate(queries).iterator();
 				
-				String CONSTANT_USC_VILLAGE_INSIDE_HASHMAP="USC_VILLAGE";
-				String CONSTANT_USC_MONGO_INSIDE_VECTOR="USC_MONGO_VILLAGE";
 				
 				
 				while (friendsDocs.hasNext()) {
-					StringBuilder sbtemp=new StringBuilder();
 					Document doc = friendsDocs.next();
 					HashMap<String, ByteIterator> val = new HashMap<String, ByteIterator>();
 					val.put("userid", new ObjectByteIterator(doc.getString("_id").getBytes()));
 					
-					currentTSA.sadd("f_"+Integer.toString(profileOwnerID),doc.getString("_id") );
-					
-					sbtemp.append("userid"+CONSTANT_USC_VILLAGE_INSIDE_HASHMAP+new ObjectByteIterator(doc.getString("_id").getBytes()).toString());
-		
+					currentTSA.sadd(Integer.toString(profileOwnerID)+"_friendlist",doc.getString("_id") );
+
 					doc.forEach((k, v) -> {
 						if (!KEY_FRIEND.equals(k) && !KEY_PENDING.equals(k)) {
 							val.put(k, new ObjectByteIterator(String.valueOf(v).getBytes()));
-							sbtemp.append(k+CONSTANT_USC_VILLAGE_INSIDE_HASHMAP+new ObjectByteIterator(String.valueOf(v).getBytes()).toString());
+							//sbtemp.append(k+CONSTANT_USC_VILLAGE_INSIDE_HASHMAP+new ObjectByteIterator(String.valueOf(v).getBytes()).toString());
 						}
 					});
 					
 					val.put("friendcount",
 							new ObjectByteIterator(String.valueOf(doc.get(KEY_FRIEND)).getBytes()));
 					
-					sbtemp.append("friendcount"+CONSTANT_USC_VILLAGE_INSIDE_HASHMAP+String.valueOf(doc.get(KEY_FRIEND)));
-					sbtemp.append(CONSTANT_USC_MONGO_INSIDE_VECTOR);
-					currentTSA.set(doc.getString("_id") , sbtemp.toString());
+
 					
 					result.add(val);
 				}
-				
-				
-				
-				
+
 				friendsDocs.close();
+
 			}
 		}
-		else if(NvmIsUp==3)
+		else if(NvmIsUp1==3)
 		{
 			MongoCollection<Document> coll = this.mongoClient.getDatabase(MONGO_DB_NAME)
 					.getCollection(MONGO_USER_COLLECTION);
@@ -775,15 +1000,29 @@ public class MongoBGClient extends DB {
 	
 	@Override
 	public boolean init() throws DBException {
-		Properties p=getProperties();
-		NVM.set("HB", "ON");
+		Properties p = getProperties();
+
+		numberofnvms=Integer.parseInt(p.getProperty("numberofnvms"));
+		numberoftsas=Integer.parseInt(p.getProperty("numberoftsa"));
+//		NVM1.set("HB", "ON");
+//		NVM2.set("HB", "ON");
 //		int faileddurationtime=Integer.parseInt(p.getProperty("failedmodeduration"));
 //		int normalmodetime=Integer.parseInt(p.getProperty("normalmodetime"));
 		
 		synchronized(this) {
-			if(first_time.get()==true)
+			
+			if(first_time1.get()==true)
 			{
-				Basic b=new Basic(failedmode,null);
+				for(int i=0;i<numberofnvms;i++)
+				{
+					nvmobjs.add(new Jedis("localhost",6379+i));
+				}
+				for(int i=0;i<numberoftsas;i++)
+				{
+					tsas.add(new Jedis("localhost",6383+i));
+				}
+				nvmobjs.get(0).set("HB", "ON");
+				Basic b=new Basic(failedmode1,null,p);
 //				System.out.println("INIT BLOCK SYNCHR");
 //				try{
 //				threadsection(b,10,20);
@@ -791,7 +1030,7 @@ public class MongoBGClient extends DB {
 //				}catch(Exception e){}
 				Thread t = new Thread(b);
 				t.start();
-				first_time.set(false);
+				first_time1.set(false);
 			}
 		}
 //		
@@ -888,68 +1127,103 @@ public class MongoBGClient extends DB {
 
 		UpdateResult result = coll.updateOne(eq("_id", String.valueOf(inviterID)),
 				new BasicDBObject("$addToSet", new Document(KEY_FRIEND, String.valueOf(inviteeID))));
+		Properties p=getProperties();
+		int numberofnvms=Integer.parseInt(p.getProperty("numberofnvms"));
 		
-		if(NvmIsUp==1)
+		int checkTSA=inviterID%numberoftsas;
+		int checkNVM=inviterID%numberofnvms;
+		//System.out.println("proID" + profileOwnerID+"mod 4: "+checkTSA);
+		Jedis currentTSA=null;
+		Jedis currentNVM=null;
+		
+		AtomicBoolean currentDelta=null;
+		AtomicBoolean currentdiscardTSA=null;
+		
+		for(int i=0;i<numberofnvms;i++)
 		{
-			NVM.sadd("f_"+Integer.toString(inviterID), Integer.toString(inviteeID));
-			
-			int getTSANumber = inviterID%4;
-			
-			switch(getTSANumber)
+			if(checkNVM==i)
 			{
-				case 0: TSA0.sadd("f_"+Integer.toString(inviterID), Integer.toString(inviteeID));
-						break;
-				case 1: TSA1.sadd("f_"+Integer.toString(inviterID), Integer.toString(inviteeID));
-						break;
-				case 2: TSA2.sadd("f_"+Integer.toString(inviterID), Integer.toString(inviteeID));
-						break;
-				case 3: TSA3.sadd("f_"+Integer.toString(inviterID), Integer.toString(inviteeID));
-						break;
+				currentNVM=nvmobjs.get(i);
+				if(checkTSA==0)
+				{
+					currentTSA=tsas.get(0);
+					currentDelta=deltaTSA0;
+					currentdiscardTSA=discardTSA0;
+				}
+				else
+				{
+					currentTSA=tsas.get(1);
+					currentDelta=deltaTSA1;
+					currentdiscardTSA=discardTSA1;
+				}
 			}
+		}
+		if(NvmIsUp1==1 && currentNVM.exists(Integer.toString(inviterID)+"_friendlist"))
+		{
+			
+			currentNVM.sadd(Integer.toString(inviterID)+"_friendlist", Integer.toString(inviteeID));
+			
+			currentTSA.sadd(Integer.toString(inviterID)+"_friendlist", Integer.toString(inviteeID));
+//			switch(getTSANumber)
+//			{
+//				case 0: TSA0.sadd(Integer.toString(inviterID)+"_friendlist", Integer.toString(inviteeID));
+//						break;
+//				case 1: TSA1.sadd(Integer.toString(inviterID)+"_friendlist", Integer.toString(inviteeID));
+//						break;
+//				case 2: TSA2.sadd(Integer.toString(inviterID)+"_friendlist", Integer.toString(inviteeID));
+//						break;
+//				case 3: TSA3.sadd(Integer.toString(inviterID)+"_friendlist", Integer.toString(inviteeID));
+//						break;
+//			}
 			
 			
 		}
-		else if(NvmIsUp==2)
+//		else if(NvmIsUp==1 && !NVM.exists(Integer.toString(inviterID)+"_friendlist"))
+//		{
+//			listFriends(requesterID, profileOwnerID, fields, result, insertImage, testMode);
+//		}
+		else if(NvmIsUp1==2)
 		{	
-			int checkTSA=inviterID%4;
-			Jedis currentTSA=null;
-			AtomicBoolean currentDelta = null;
-			AtomicBoolean discardCurrentTSA = null;
+//			int checkTSA=inviterID%4;
+		
 			
 			
-			if(checkTSA==0)
-			{
-				currentTSA=TSA0;
-				currentDelta=deltaTSA0;
-				discardCurrentTSA = discardTSA0;
-			}
-			else if(checkTSA==1)
-			{
-				currentTSA=TSA1;
-				currentDelta=deltaTSA1;
-				discardCurrentTSA = discardTSA1;
-			}
-			else if(checkTSA==2)
-			{
-				currentTSA=TSA2;
-				currentDelta=deltaTSA2;
-
-				discardCurrentTSA = discardTSA2;
-			}
-			else if(checkTSA==3)
-			{
-				currentTSA=TSA3;
-				currentDelta=deltaTSA3;
-				discardCurrentTSA = discardTSA3;
-			}
+//			if(checkTSA==0)
+//			{
+//				currentTSA=TSA0;
+//				currentDelta=deltaTSA0;
+//				discardCurrentTSA = discardTSA0;
+//			}
+//			else if(checkTSA==1)
+//			{
+//				currentTSA=TSA1;
+//				currentDelta=deltaTSA1;
+//				discardCurrentTSA = discardTSA1;
+//			}
+//			else if(checkTSA==2)
+//			{
+//				currentTSA=TSA2;
+//				currentDelta=deltaTSA2;
+//
+//				discardCurrentTSA = discardTSA2;
+//			}
+//			else if(checkTSA==3)
+//			{
+//				currentTSA=TSA3;
+//				currentDelta=deltaTSA3;
+//				discardCurrentTSA = discardTSA3;
+//			}
 			
+//			if(!currentTSA.exists(Integer.toString(inviterID)+"_friendlist"))
+//			{
 			
 			synchronized(this) {
 				if(currentDelta.get()==false)
 				{
 					currentDelta.set(true);
-					currentTSA.sadd("delta", Integer.toString(inviterID)+ "_f_add_"+Integer.toString(inviteeID));
-					currentTSA.sadd("f_"+Integer.toString(inviterID), Integer.toString(inviteeID));
+					currentTSA.sadd("delta", "created");
+
+//					currentTSA.sadd(Integer.toString(inviterID)+"_friendlist", Integer.toString(inviteeID));
 					
 				}
 			
@@ -957,24 +1231,27 @@ public class MongoBGClient extends DB {
 			}
 			
 			
-			if(currentDelta.get() == true && currentTSA.exists("delta") && discardCurrentTSA.get()==false )
+			if(currentDelta.get() == true && currentTSA.exists("delta") && currentdiscardTSA.get()==false )
 			{
 				currentTSA.sadd("delta", Integer.toString(inviterID)+ "_f_add_"+Integer.toString(inviteeID));
-				currentTSA.sadd("f_"+Integer.toString(inviterID), Integer.toString(inviteeID));
+				if(currentTSA.exists(Integer.toString(inviterID)+"_friendlist"))
+				{
+					currentTSA.sadd(Integer.toString(inviterID)+"_friendlist", Integer.toString(inviteeID));
+				}
 			}
 			else
 			{
-				discardCurrentTSA.set(true);
+				currentdiscardTSA.set(true);
 			}
 			
 			
-			
 		}
-		else if(NvmIsUp == 3)
+		else if(NvmIsUp1 == 3)
 		{
-			NVM.del("f_"+Integer.toString(inviterID));
-			NVM.del("p_"+Integer.toString(inviterID));
-			NVM.del(Integer.toString(inviterID));
+			currentNVM.del(Integer.toString(inviterID)+"_friendcount");
+			currentNVM.del(Integer.toString(inviterID)+"_pendingcount");
+			currentNVM.del(Integer.toString(inviterID)+"_friendlist");
+			currentNVM.del(Integer.toString(inviterID)+"_pendinglist");
 		}
 		
 		return 0;
@@ -1059,7 +1336,7 @@ public class MongoBGClient extends DB {
 
 	private boolean isEmpty(Collection<?> coll) {
 		return coll == null || coll.isEmpty();
-	}
+	} 
 
 	public int acceptFriendInvitee(int inviterID, int inviteeID) {
 		MongoCollection<Document> coll = this.mongoClient.getDatabase(MONGO_DB_NAME)
@@ -1069,101 +1346,143 @@ public class MongoBGClient extends DB {
 		inviteeUpdate.put("$pull", new Document(KEY_PENDING, String.valueOf(inviterID)));
 		coll.updateOne(eq("_id", String.valueOf(inviteeID)), inviteeUpdate);
 		
-		//---------------Changed By Kaushal on Nov 10---------------//
-		if(NvmIsUp==1)
+		Properties p=getProperties();
+		int numberofnvms=Integer.parseInt(p.getProperty("numberofnvms"));
+		
+		int checkTSA=inviterID%numberoftsas;
+		int checkNVM=inviterID%numberofnvms;
+		//System.out.println("proID" + profileOwnerID+"mod 4: "+checkTSA);
+		Jedis currentTSA=null;
+		Jedis currentNVM=null;
+	
+		AtomicBoolean currentDelta=null;
+		AtomicBoolean currentdiscardTSA=null;
+		
+		for(int i=0;i<numberofnvms;i++)
 		{
-			NVM.sadd("f_"+Integer.toString(inviteeID), Integer.toString(inviterID));
-			NVM.srem("p_"+Integer.toString(inviteeID),Integer.toString(inviterID));
-			
-			int getTSANumber = inviterID%4;
-			
-			switch(getTSANumber)
+			if(checkNVM==i)
 			{
-				case 0: TSA0.sadd("f_"+Integer.toString(inviteeID), Integer.toString(inviterID));
-						TSA0.srem("p_"+Integer.toString(inviteeID), Integer.toString(inviterID));
-						break;
-				case 1: TSA1.sadd("f_"+Integer.toString(inviteeID), Integer.toString(inviterID));
-						TSA1.srem("p_"+Integer.toString(inviteeID), Integer.toString(inviterID));
-						break;
-				case 2: TSA2.sadd("f_"+Integer.toString(inviteeID), Integer.toString(inviterID));
-						TSA2.srem("p_"+Integer.toString(inviteeID), Integer.toString(inviterID));
-						break;
-				case 3: TSA3.sadd("f_"+Integer.toString(inviteeID), Integer.toString(inviterID));
-						TSA3.srem("p_"+Integer.toString(inviteeID), Integer.toString(inviterID));
-						break;
+				currentNVM=nvmobjs.get(i);
+				if(checkTSA==0)
+				{
+					currentTSA=tsas.get(0);
+					currentDelta=deltaTSA0;
+					currentdiscardTSA=discardTSA0;
+				}
+				else
+				{
+					currentTSA=tsas.get(1);
+					currentDelta=deltaTSA1;
+					currentdiscardTSA=discardTSA1;
+				}
 			}
+		}
+		
+		
+
+		if(NvmIsUp1==1 && currentNVM.exists(Integer.toString(inviteeID)+"_friendlist"))
+		{
+			
+			currentNVM.sadd(Integer.toString(inviteeID)+"_friendlist", Integer.toString(inviterID));
+			currentNVM.srem(Integer.toString(inviteeID)+"_pendinglist",Integer.toString(inviterID));
+			
+//			int getTSANumber = inviterID%4;
+			currentTSA.sadd(Integer.toString(inviteeID)+"_friendlist", Integer.toString(inviterID));
+			currentTSA.srem(Integer.toString(inviteeID)+"_pendinglist", Integer.toString(inviterID));
+//			switch(getTSANumber)
+//			{
+//				case 0: TSA0.sadd(Integer.toString(inviteeID)+"_friendlist", Integer.toString(inviterID));
+//						TSA0.srem(Integer.toString(inviteeID)+"_pendinglist", Integer.toString(inviterID));
+//						break;
+//				case 1: TSA1.sadd(Integer.toString(inviteeID)+"_friendlist", Integer.toString(inviterID));
+//						TSA1.srem(Integer.toString(inviteeID)+"_pendinglist", Integer.toString(inviterID));
+//						break;
+//				case 2: TSA2.sadd(Integer.toString(inviteeID)+"_friendlist", Integer.toString(inviterID));
+//						TSA2.srem(Integer.toString(inviteeID)+"_pendinglist", Integer.toString(inviterID));
+//						break;
+//				case 3: TSA3.sadd(Integer.toString(inviteeID)+"_friendlist", Integer.toString(inviterID));
+//						TSA3.srem(Integer.toString(inviteeID)+"_pendinglist", Integer.toString(inviterID));
+//						break;
+//			}
 			
 			
 		}
-		else if(NvmIsUp==2)
+		else if(NvmIsUp1==2)
 		{
 //			TSA.sadd(Integer.toString(inviteeID), "f_add_"+Integer.toString(inviterID));
 //			TSA.sadd(Integer.toString(inviteeID),"p_remove_"+Integer.toString(inviterID));
 //			
-			int checkTSA=inviterID%4;
-			Jedis currentTSA=null;
-			AtomicBoolean currentDelta = null;
-			AtomicBoolean discardCurrentTSA = null;
+//			int checkTSA=inviterID%4;
+//			Jedis currentTSA=TSA1;
+//			AtomicBoolean currentDelta = deltaTSA0;
+//			AtomicBoolean discardCurrentTSA = discardTSA0;
 			
 			
-			if(checkTSA==0)
-			{
-				currentTSA=TSA0;
-				currentDelta=deltaTSA0;
-				discardCurrentTSA = discardTSA0;
-			}
-			else if(checkTSA==1)
-			{
-				currentTSA=TSA1;
-				currentDelta=deltaTSA1;
-				discardCurrentTSA = discardTSA1;
-			}
-			else if(checkTSA==2)
-			{
-				currentTSA=TSA2;
-				currentDelta=deltaTSA2;
-
-				discardCurrentTSA = discardTSA2;
-			}
-			else if(checkTSA==3)
-			{
-				currentTSA=TSA3;
-				currentDelta=deltaTSA3;
-				discardCurrentTSA = discardTSA3;
-			}
+//			if(checkTSA==0)
+//			{
+//				currentTSA=TSA0;
+//				currentDelta=deltaTSA0;
+//				discardCurrentTSA = discardTSA0;
+//			}
+//			else if(checkTSA==1)
+//			{
+//				currentTSA=TSA1;
+//				currentDelta=deltaTSA1;
+//				discardCurrentTSA = discardTSA1;
+//			}
+//			else if(checkTSA==2)
+//			{
+//				currentTSA=TSA2;
+//				currentDelta=deltaTSA2;
+//
+//				discardCurrentTSA = discardTSA2;
+//			}
+//			else if(checkTSA==3)
+//			{
+//				currentTSA=TSA3;
+//				currentDelta=deltaTSA3;
+//				discardCurrentTSA = discardTSA3;
+//			}
 			
 			
 			synchronized(this) {
 				if(currentDelta.get()==false)
 				{
 					currentDelta.set(true);
-					currentTSA.sadd("delta", Integer.toString(inviteeID) + "_f_add_"+Integer.toString(inviterID));
-					currentTSA.sadd("delta", Integer.toString(inviteeID) + "_p_remove_"+Integer.toString(inviterID));
+					currentTSA.sadd("delta", "created");
+					//currentTSA.sadd("delta", Integer.toString(inviteeID) + "_p_remove_"+Integer.toString(inviterID));
+//					currentTSA.sadd(Integer.toString(inviteeID)+"_friendlist", Integer.toString(inviterID));
+//					currentTSA.srem(Integer.toString(inviteeID)+"_pendinglist",Integer.toString(inviterID));
+					
+					
 				}
 			
 			//TSA.sadd(Integer.toString(inviterID), "f_add_"+Integer.toString(inviteeID));
 			}
 			
 			
-			if(currentDelta.get() == true && currentTSA.exists("delta") && discardCurrentTSA.get()==false )
+			if(currentDelta.get() == true && currentTSA.exists("delta") && currentdiscardTSA.get()==false )
 			{
 				currentTSA.sadd("delta", Integer.toString(inviteeID) + "_f_add_"+Integer.toString(inviterID));
 				currentTSA.sadd("delta", Integer.toString(inviteeID) + "_p_remove_"+Integer.toString(inviterID));
-				currentTSA.sadd("f_"+Integer.toString(inviteeID), Integer.toString(inviterID));
-				currentTSA.sadd("p_"+Integer.toString(inviteeID),Integer.toString(inviterID));
-				
+				if(currentTSA.exists(Integer.toString(inviteeID)+"_friendlist") && currentTSA.exists(Integer.toString(inviteeID)+"_pendinglist"))
+				{
+					currentTSA.sadd(Integer.toString(inviteeID)+"_friendlist", Integer.toString(inviterID));
+					currentTSA.srem(Integer.toString(inviteeID)+"_pendinglist",Integer.toString(inviterID));
+				}
 			}
 			else
 			{
-				discardCurrentTSA.set(true);
+				currentdiscardTSA.set(true);
 			}
-
+ 
 		}
-		else if(NvmIsUp == 3)
+		else if(NvmIsUp1 == 3)
 		{
-			NVM.del(Integer.toString(inviteeID));
-			NVM.del("f_"+Integer.toString(inviteeID));
-			NVM.del("p_"+Integer.toString(inviteeID));
+			currentNVM.del(Integer.toString(inviteeID)+"_friendcount");
+			currentNVM.del(Integer.toString(inviteeID)+"_pendingcount");
+			currentNVM.del(Integer.toString(inviteeID)+"_friendlist");
+			currentNVM.del(Integer.toString(inviteeID)+"_pendinglist");
 		}
 		
 		//---------------Changed By Kaushal on Nov 10---------------//
@@ -1184,95 +1503,130 @@ public class MongoBGClient extends DB {
 		coll.updateOne(eq("_id", String.valueOf(inviteeID)),
 				new BasicDBObject("$pull", new Document(KEY_PENDING, String.valueOf(inviterID))));
 		
-		//---------------Changed By Kaushal on Nov 10---------------//
-		if(NvmIsUp==1)
+		Properties p=getProperties();
+		int numberofnvms=Integer.parseInt(p.getProperty("numberofnvms"));
+		
+		int checkTSA=inviterID%numberoftsas;
+		int checkNVM=inviterID%numberofnvms;
+		//System.out.println("proID" + profileOwnerID+"mod 4: "+checkTSA);
+		Jedis currentTSA=null;
+		Jedis currentNVM=null;
+	
+		AtomicBoolean currentDelta=null;
+		AtomicBoolean currentdiscardTSA=null;
+		
+		for(int i=0;i<numberofnvms;i++)
 		{
-			NVM.srem("p_"+Integer.toString(inviteeID), Integer.toString(inviterID));
-			
-			int getTSANumber = inviterID%4;
-			
-			switch(getTSANumber)
+			if(checkNVM==i)
 			{
-				case 0: TSA0.srem("p_"+Integer.toString(inviteeID), Integer.toString(inviterID));
-						break;
-				case 1: TSA1.srem("p_"+Integer.toString(inviteeID), Integer.toString(inviterID));
-						break;
-				case 2: TSA2.srem("p_"+Integer.toString(inviteeID), Integer.toString(inviterID));
-						break;
-				case 3: TSA3.srem("p_"+Integer.toString(inviteeID), Integer.toString(inviterID));
-						break;
+				currentNVM=nvmobjs.get(i);
+				if(checkTSA==0)
+				{
+					currentTSA=tsas.get(0);
+					currentDelta=deltaTSA0;
+					currentdiscardTSA=discardTSA0;
+				}
+				else
+				{
+					currentTSA=tsas.get(1);
+					currentDelta=deltaTSA1;
+					currentdiscardTSA=discardTSA1;
+				}
 			}
+		}
+		
+		
+		//---------------Changed By Kaushal on Nov 10---------------//
+		if(NvmIsUp1==1)
+		{
+			currentNVM.srem(Integer.toString(inviteeID)+"_pendinglist", Integer.toString(inviterID));
+			currentTSA.srem(Integer.toString(inviteeID)+"_pendinglist", Integer.toString(inviterID));
+//			int getTSANumber = inviterID%4;
+//			
+//			switch(getTSANumber) 
+//			{
+//				case 0: TSA0.srem(Integer.toString(inviteeID)+"_pendinglist", Integer.toString(inviterID));
+//						break;
+//				case 1: TSA1.srem(Integer.toString(inviteeID)+"_pendinglist", Integer.toString(inviterID));
+//						break;
+//				case 2: TSA2.srem(Integer.toString(inviteeID)+"_pendinglist", Integer.toString(inviterID));
+//						break;
+//				case 3: TSA3.srem(Integer.toString(inviteeID)+"_pendinglist", Integer.toString(inviterID));
+//						break;
+//			}
 			
 		}
-		else if(NvmIsUp==2)
+		else if(NvmIsUp1==2)
 		{
 			//TSA1.sadd(Integer.toString(inviteeID), "p_remove_"+Integer.toString(inviterID));
 			
-			int checkTSA=inviterID%4;
-			Jedis currentTSA=null;
-			AtomicBoolean currentDelta = null;
-			AtomicBoolean discardCurrentTSA = null;
+//			int checkTSA=inviterID%4;
+//			Jedis currentTSA=TSA1;
+//			AtomicBoolean currentDelta = deltaTSA0;
+//			AtomicBoolean discardCurrentTSA = discardTSA0;
 			
 			
-			if(checkTSA==0)
-			{
-				currentTSA=TSA0;
-				currentDelta=deltaTSA0;
-				discardCurrentTSA = discardTSA0;
-			}
-			else if(checkTSA==1)
-			{
-				currentTSA=TSA1;
-				currentDelta=deltaTSA1;
-				discardCurrentTSA = discardTSA1;
-			}
-			else if(checkTSA==2)
-			{
-				currentTSA=TSA2;
-				currentDelta=deltaTSA2;
-
-				discardCurrentTSA = discardTSA2;
-			}
-			else if(checkTSA==3)
-			{
-				currentTSA=TSA3;
-				currentDelta=deltaTSA3;
-				discardCurrentTSA = discardTSA3;
-			}
+//			if(checkTSA==0)
+//			{
+//				currentTSA=TSA0;
+//				currentDelta=deltaTSA0;
+//				discardCurrentTSA = discardTSA0;
+//			}
+//			else if(checkTSA==1)
+//			{
+//				currentTSA=TSA1;
+//				currentDelta=deltaTSA1;
+//				discardCurrentTSA = discardTSA1;
+//			}
+//			else if(checkTSA==2)
+//			{
+//				currentTSA=TSA2;
+//				currentDelta=deltaTSA2;
+//
+//				discardCurrentTSA = discardTSA2;
+//			}
+//			else if(checkTSA==3)
+//			{
+//				currentTSA=TSA3;
+//				currentDelta=deltaTSA3;
+//				discardCurrentTSA = discardTSA3;
+//			}
 			
 			
 			synchronized(this) {
 				if(currentDelta.get()==false)
 				{
 					currentDelta.set(true);
-					currentTSA.sadd("delta", Integer.toString(inviteeID) + "_p_remove_"+Integer.toString(inviterID));
-					currentTSA.srem("p_"+Integer.toString(inviteeID), Integer.toString(inviterID));
+					currentTSA.sadd("delta", "created");
+					//currentTSA.srem("p_"+Integer.toString(inviteeID), Integer.toString(inviterID));
 				}
 			
 			//TSA.sadd(Integer.toString(inviterID), "f_add_"+Integer.toString(inviteeID));
 			}
 			
 			
-			if(currentDelta.get() == true && currentTSA.exists("delta") && discardCurrentTSA.get()==false )
+			if(currentDelta.get() == true && currentTSA.exists("delta") && currentdiscardTSA.get()==false )
 			{
 				currentTSA.sadd("delta", Integer.toString(inviteeID) + "_p_remove_"+Integer.toString(inviterID));
-				currentTSA.srem("p_"+Integer.toString(inviteeID),Integer.toString(inviterID));
-				
+				if(currentTSA.exists(Integer.toString(inviteeID)+"_pendinglist"))
+				{ 
+					currentTSA.srem(Integer.toString(inviteeID)+"_pendinglist",Integer.toString(inviterID));
+				}
 			}
 			else
 			{
-				discardCurrentTSA.set(true);
+				currentdiscardTSA.set(true);
 			}
 
 		}
-		else if(NvmIsUp==3)
+		else if(NvmIsUp1==3)
 		{
-			NVM.del("f_"+Integer.toString(inviteeID));
-			NVM.del("p_"+Integer.toString(inviteeID));
-			NVM.del(Integer.toString(inviteeID));
+			currentNVM.del(Integer.toString(inviteeID)+"_friendcount");
+			currentNVM.del(Integer.toString(inviteeID)+"_pendingcount");
+			currentNVM.del(Integer.toString(inviteeID)+"_friendlist");
+			currentNVM.del(Integer.toString(inviteeID)+"_pendinglist");
 		}
 		//---------------Changed By Kaushal on Nov 10---------------//
-		
 		return 0;
 	}
 
@@ -1284,96 +1638,126 @@ public class MongoBGClient extends DB {
 		coll.updateOne(eq("_id", String.valueOf(inviteeID)),
 				new BasicDBObject("$addToSet", new Document(KEY_PENDING, String.valueOf(inviterID))));
 		
-		//---------------Changed By Kaushal on Nov 10---------------//
-//		if(NvmIsUp==1)
-//		{
-//			NVM.sadd("p_"+Integer.toString(inviteeID), Integer.toString(inviterID));
-//		}
-//		//---------------Changed By Kaushal on Nov 10---------------//
-//		else if(NvmIsUp==2)
-//		{
-//			TSA1.sadd(Integer.toString(inviteeID), "p_add_"+Integer.toString(inviterID));
-//		}
-		if(NvmIsUp==1)
+		Properties p=getProperties();
+		int numberofnvms=Integer.parseInt(p.getProperty("numberofnvms"));
+		
+		int checkTSA=inviterID%numberoftsas;
+		int checkNVM=inviterID%numberofnvms;
+		//System.out.println("proID" + profileOwnerID+"mod 4: "+checkTSA);
+		Jedis currentTSA=null;
+		Jedis currentNVM=null;
+	
+		AtomicBoolean currentDelta=null;
+		AtomicBoolean currentdiscardTSA=null;
+		
+		for(int i=0;i<numberofnvms;i++)
 		{
-			NVM.sadd("p_"+Integer.toString(inviteeID), Integer.toString(inviterID));
-			int getTSANumber = inviteeID%4;
-			
-			switch(getTSANumber)
+			if(checkNVM==i)
 			{
-				case 0: TSA0.sadd("p_"+Integer.toString(inviteeID), Integer.toString(inviterID));
-						break;
-				case 1: TSA1.sadd("p_"+Integer.toString(inviteeID), Integer.toString(inviterID));
-						break;
-				case 2: TSA2.sadd("p_"+Integer.toString(inviteeID), Integer.toString(inviterID));
-						break;
-				case 3: TSA3.sadd("p_"+Integer.toString(inviteeID), Integer.toString(inviterID));
-						break;
+				currentNVM=nvmobjs.get(i);
+				if(checkTSA==0)
+				{
+					currentTSA=tsas.get(0);
+					currentDelta=deltaTSA0;
+					currentdiscardTSA=discardTSA0;
+				}
+				else
+				{
+					currentTSA=tsas.get(1);
+					currentDelta=deltaTSA1;
+					currentdiscardTSA=discardTSA1;
+				}
 			}
+		}
+		
+		
+
+		if(NvmIsUp1==1) 
+		{
+			currentNVM.sadd(Integer.toString(inviteeID)+"_pendinglist", Integer.toString(inviterID));
+			currentTSA.sadd(Integer.toString(inviteeID)+"_pendinglist", Integer.toString(inviterID));
+//			int getTSANumber = inviteeID%4; 
+//			
+//			switch(getTSANumber)
+//			{
+//				case 0: TSA0.sadd(Integer.toString(inviteeID)+"_pendinglist", Integer.toString(inviterID));
+//						break;
+//				case 1: TSA1.sadd(Integer.toString(inviteeID)+"_pendinglist", Integer.toString(inviterID));
+//						break;
+//				case 2: TSA2.sadd(Integer.toString(inviteeID)+"_pendinglist", Integer.toString(inviterID));
+//						break;
+//				case 3: TSA3.sadd(Integer.toString(inviteeID)+"_pendinglist", Integer.toString(inviterID));
+//						break;
+//			}
 			
 			
 		}
-		else if(NvmIsUp==2)
+		else if(NvmIsUp1==2)
 		{	
-			int checkTSA=inviteeID%4;
-			Jedis currentTSA=null;
-			AtomicBoolean currentDelta = null;
-			AtomicBoolean discardCurrentTSA = null;
+//			int checkTSA=inviteeID%4;
+//			Jedis currentTSA=TSA1;
+//			AtomicBoolean currentDelta = deltaTSA0;
+//			AtomicBoolean discardCurrentTSA = discardTSA0;
 			
 			
-			if(checkTSA==0)
-			{
-				currentTSA=TSA0;
-				currentDelta=deltaTSA0;
-				discardCurrentTSA = discardTSA0;
-			}
-			else if(checkTSA==1)
-			{
-				currentTSA=TSA1;
-				currentDelta=deltaTSA1;
-				discardCurrentTSA = discardTSA1;
-			}
-			else if(checkTSA==2)
-			{
-				currentTSA=TSA2;
-				currentDelta=deltaTSA2;
-				discardCurrentTSA = discardTSA2;
-			}
-			else if(checkTSA==3)
-			{
-				currentTSA=TSA3;
-				currentDelta=deltaTSA3;
-				discardCurrentTSA = discardTSA3;
-			}
+//			if(checkTSA==0)
+//			{
+//				currentTSA=TSA0;
+//				currentDelta=deltaTSA0;
+//				discardCurrentTSA = discardTSA0;
+//			}
+//			else if(checkTSA==1)
+//			{
+//				currentTSA=TSA1;
+//				currentDelta=deltaTSA1;
+//				discardCurrentTSA = discardTSA1;
+//			}
+//			else if(checkTSA==2)
+//			{
+//				currentTSA=TSA2;
+//				currentDelta=deltaTSA2;
+//				discardCurrentTSA = discardTSA2;
+//			}
+//			else if(checkTSA==3)
+//			{
+//				currentTSA=TSA3;
+//				currentDelta=deltaTSA3;
+//				discardCurrentTSA = discardTSA3;
+//			}
 			
 			
 			synchronized(this) {
 				if(currentDelta.get()==false)
 				{
 					currentDelta.set(true);
-					currentTSA.sadd("delta", Integer.toString(inviteeID) + "_p_add_"+Integer.toString(inviterID));
+					currentTSA.sadd("delta", "created");
+					//currentTSA.sadd(Integer.toString(inviteeID)+"_pendinglist", Integer.toString(inviterID));
 				}
 			
 			//TSA.sadd(Integer.toString(inviterID), "f_add_"+Integer.toString(inviteeID));
 			}
 			
 			
-			if(currentDelta.get() == true && currentTSA.exists("delta") && discardCurrentTSA.get()==false )
+			if(currentDelta.get() == true && currentTSA.exists("delta") && currentdiscardTSA.get()==false )
 			{
 				currentTSA.sadd("delta", Integer.toString(inviteeID) + "_p_add_"+Integer.toString(inviterID));
-				currentTSA.sadd("p_"+Integer.toString(inviteeID), Integer.toString(inviterID));
+				if(currentTSA.exists(Integer.toString(inviteeID)+"_pendinglist"))
+				{
+					currentTSA.sadd(Integer.toString(inviteeID)+"_pendinglist", Integer.toString(inviterID));
+				}
 			}
 			else
 			{
-				discardCurrentTSA.set(true);
+				currentdiscardTSA.set(true);
 			}
 
 		}
-		else if(NvmIsUp == 3)
+		else if(NvmIsUp1 == 3)
 		{
-			NVM.del("f_"+Integer.toString(inviteeID));
-			NVM.del("p_"+Integer.toString(inviteeID));
-			NVM.del(Integer.toString(inviteeID));
+			currentNVM.del(Integer.toString(inviteeID)+"_friendcount");
+			currentNVM.del(Integer.toString(inviteeID)+"_pendingcount");
+			currentNVM.del(Integer.toString(inviteeID)+"_friendlist");
+			currentNVM.del(Integer.toString(inviteeID)+"_pendinglist");
 		}
 
 		
@@ -1412,7 +1796,7 @@ public class MongoBGClient extends DB {
 		// TODO Auto-generated method stub
 		return 0;
 	}
-
+ 
 	public int thawFriendInviter(int friendid1, int friendid2) {
 		MongoCollection<Document> coll = this.mongoClient.getDatabase(MONGO_DB_NAME)
 				.getCollection(MONGO_USER_COLLECTION);
@@ -1420,88 +1804,127 @@ public class MongoBGClient extends DB {
 		coll.updateOne(eq("_id", String.valueOf(friendid1)),
 				new BasicDBObject("$pull", new Document(KEY_FRIEND, String.valueOf(friendid2))));
 		
-		//---------------Changed By Kaushal on Nov 10---------------//
-		if(NvmIsUp==1)
+		Properties p=getProperties();
+		int numberofnvms=Integer.parseInt(p.getProperty("numberofnvms"));
+		
+		int checkTSA=friendid1%numberoftsas;
+		int checkNVM=friendid1%numberofnvms;
+		//System.out.println("proID" + profileOwnerID+"mod 4: "+checkTSA);
+		Jedis currentTSA=null;
+		Jedis currentNVM=null;
+
+		AtomicBoolean currentDelta=null;
+		AtomicBoolean currentdiscardTSA=null;
+		 
+		for(int i=0;i<numberofnvms;i++)
 		{
-			NVM.srem("f_"+Integer.toString(friendid1), Integer.toString(friendid2));
-			int getTSANumber = friendid1%4;
-			
-			switch(getTSANumber)
+			if(checkNVM==i)
 			{
-				case 0: TSA0.srem("f_"+Integer.toString(friendid1), Integer.toString(friendid2));
-						break;
-				case 1: TSA1.srem("f_"+Integer.toString(friendid1), Integer.toString(friendid2));
-						break;
-				case 2: TSA2.srem("f_"+Integer.toString(friendid1), Integer.toString(friendid2));
-						break;
-				case 3: TSA3.srem("f_"+Integer.toString(friendid1), Integer.toString(friendid2));
-						break;
+				currentNVM=nvmobjs.get(i);
+				if(checkTSA==0)
+				{
+					currentTSA=tsas.get(0);
+					currentDelta=deltaTSA0;
+					currentdiscardTSA=discardTSA0;
+				}
+				else
+				{
+					currentTSA=tsas.get(1);
+					currentDelta=deltaTSA1;
+					currentdiscardTSA=discardTSA1;
+				}
 			}
+		}
+		
+		
+		
+		//---------------Changed By Kaushal on Nov 10---------------//
+		if(NvmIsUp1==1 && currentNVM.exists(Integer.toString(friendid1)+"_friendlist"))
+		{
+			currentNVM.srem(Integer.toString(friendid1)+"_friendlist", Integer.toString(friendid2));
+			currentTSA.srem(Integer.toString(friendid1)+"_friendlist", Integer.toString(friendid2));
+//			int getTSANumber = friendid1%4;
+//			
+//			switch(getTSANumber)
+//			{
+//				case 0: TSA0.srem(Integer.toString(friendid1)+"_friendlist", Integer.toString(friendid2));
+//						break;
+//				case 1: TSA1.srem(Integer.toString(friendid1)+"_friendlist", Integer.toString(friendid2));
+//						break;
+//				case 2: TSA2.srem(Integer.toString(friendid1)+"_friendlist", Integer.toString(friendid2));
+//						break;
+//				case 3: TSA3.srem(Integer.toString(friendid1)+"_friendlist", Integer.toString(friendid2));
+//						break;
+//			}
 			
 			
 		}
-		else if(NvmIsUp==2)
+		else if(NvmIsUp1==2)
 		{	
-			int checkTSA=friendid1%4;
-			Jedis currentTSA=null;
-			AtomicBoolean currentDelta = null;
-			AtomicBoolean discardCurrentTSA = null;
+//			int checkTSA=friendid1%4;
+//			Jedis currentTSA=TSA1;
+//			AtomicBoolean currentDelta = deltaTSA0;
+//			AtomicBoolean discardCurrentTSA = discardTSA0;
 			
 			
-			if(checkTSA==0)
-			{
-				currentTSA=TSA0;
-				currentDelta=deltaTSA0;
-				discardCurrentTSA = discardTSA0;
-			}
-			else if(checkTSA==1)
-			{
-				currentTSA=TSA1;
-				currentDelta=deltaTSA1;
-				discardCurrentTSA = discardTSA1;
-			}
-			else if(checkTSA==2)
-			{
-				currentTSA=TSA2;
-				currentDelta=deltaTSA2;
-				discardCurrentTSA = discardTSA2;
-			}
-			else if(checkTSA==3)
-			{
-				currentTSA=TSA3;
-				currentDelta=deltaTSA3;
-				discardCurrentTSA = discardTSA3;
-			}
+//			if(checkTSA==0)
+//			{
+//				currentTSA=TSA0;
+//				currentDelta=deltaTSA0;
+//				discardCurrentTSA = discardTSA0;
+//			}
+//			else if(checkTSA==1)
+//			{
+//				currentTSA=TSA1;
+//				currentDelta=deltaTSA1;
+//				discardCurrentTSA = discardTSA1;
+//			}
+//			else if(checkTSA==2)
+//			{
+//				currentTSA=TSA2;
+//				currentDelta=deltaTSA2;
+//				discardCurrentTSA = discardTSA2;
+//			}
+//			else if(checkTSA==3)
+//			{
+//				currentTSA=TSA3;
+//				currentDelta=deltaTSA3;
+//				discardCurrentTSA = discardTSA3;
+//			}
 			
 			
 			synchronized(this) {
 				if(currentDelta.get()==false)
 				{
 					currentDelta.set(true);
-					currentTSA.sadd("delta", Integer.toString(friendid1) + "_f_remove_"+Integer.toString(friendid2));
+					currentTSA.sadd("delta", "created");
+					
 				}
-			
 			//TSA.sadd(Integer.toString(inviterID), "f_add_"+Integer.toString(inviteeID));
 			}
+			//currentTSA.sadd("delta", Integer.toString(friendid1) + "_f_remove_"+Integer.toString(friendid2));
 			
 			
-			if(currentDelta.get() == true && currentTSA.exists("delta") && discardCurrentTSA.get()==false )
+			if(currentDelta.get() == true && currentTSA.exists("delta") && currentdiscardTSA.get()==false )
 			{
 				currentTSA.sadd("delta", Integer.toString(friendid1) + "_f_remove_"+Integer.toString(friendid2));
-				currentTSA.srem("f_"+Integer.toString(friendid1), Integer.toString(friendid2));
+				if(currentTSA.exists(Integer.toString(friendid1)+"_friendlist"))
+				{
+					currentTSA.srem(Integer.toString(friendid1)+"_friendlist", Integer.toString(friendid2));
+				}
 			}
 			else
 			{
-				discardCurrentTSA.set(true);
+				currentdiscardTSA.set(true);
 			}
-
 		}
 
-		else if(NvmIsUp == 3)
+		else if(NvmIsUp1 == 3)
 		{
-			NVM.del("f_"+Integer.toString(friendid1));
-			NVM.del("p_"+Integer.toString(friendid1));
-			NVM.del(Integer.toString(friendid1));
+			currentNVM.del(Integer.toString(friendid1)+"_friendlist");
+			currentNVM.del(Integer.toString(friendid1)+"_friendcount");
+			currentNVM.del(Integer.toString(friendid1)+"_pendingcount");
+			currentNVM.del(Integer.toString(friendid1)+"_pendinglist");
 		}
 
 		return 0;
@@ -1513,96 +1936,126 @@ public class MongoBGClient extends DB {
 		coll.updateOne(eq("_id", String.valueOf(friendid2)),
 				new BasicDBObject("$pull", new Document(KEY_FRIEND, String.valueOf(friendid1))));
 		
-		//---------------Changed By Kaushal on Nov 10---------------//
-//		if(NvmIsUp==1)
-//		{
-//			NVM.srem("f_"+Integer.toString(friendid2),Integer.toString(friendid1));
-//		}
-//		else if(NvmIsUp==2)
-//		{
-//			TSA1.sadd(Integer.toString(friendid2), "f_remove_"+Integer.toString(friendid1));
-//		}
-		if(NvmIsUp==1)
+		Properties p=getProperties();
+		int numberofnvms=Integer.parseInt(p.getProperty("numberofnvms"));
+		
+		int checkTSA=friendid1%numberoftsas;
+		int checkNVM=friendid1%numberofnvms;
+		//System.out.println("proID" + profileOwnerID+"mod 4: "+checkTSA);
+		Jedis currentTSA=null;
+		Jedis currentNVM=null;
+
+		AtomicBoolean currentDelta=null;
+		AtomicBoolean currentdiscardTSA=null;
+		
+		for(int i=0;i<numberofnvms;i++)
 		{
-			NVM.srem("f_"+Integer.toString(friendid2), Integer.toString(friendid1));
-			int getTSANumber = friendid1%4;
-			
-			switch(getTSANumber)
+			if(checkNVM==i)
 			{
-				case 0: TSA0.srem("f_"+Integer.toString(friendid2), Integer.toString(friendid1));
-						break;
-				case 1: TSA1.srem("f_"+Integer.toString(friendid2), Integer.toString(friendid1));
-						break;
-				case 2: TSA2.srem("f_"+Integer.toString(friendid2), Integer.toString(friendid1));
-						break;
-				case 3: TSA3.srem("f_"+Integer.toString(friendid2), Integer.toString(friendid1));
-						break;
+				currentNVM=nvmobjs.get(i);
+				if(checkTSA==0)
+				{
+					currentTSA=tsas.get(0);
+					currentDelta=deltaTSA0;
+					currentdiscardTSA=discardTSA0;
+				}
+				else
+				{
+					currentTSA=tsas.get(1);
+					currentDelta=deltaTSA1;
+					currentdiscardTSA=discardTSA1;
+				}
 			}
+		}
+		
+		
+		
+		if(NvmIsUp1==1 && currentNVM.exists(Integer.toString(friendid2)+"_friendlist"))
+		{
+			currentNVM.srem(Integer.toString(friendid2)+"_friendlist", Integer.toString(friendid1));
+//			int getTSANumber = friendid1%4;
+			currentTSA.srem(Integer.toString(friendid2)+"_friendlist", Integer.toString(friendid1));
+			
+//			switch(getTSANumber)
+//			{
+//				case 0: TSA0.srem(Integer.toString(friendid2)+"_friendlist", Integer.toString(friendid1));
+//						break;
+//				case 1: TSA1.srem(Integer.toString(friendid2)+"_friendlist", Integer.toString(friendid1));
+//						break;
+//				case 2: TSA2.srem(Integer.toString(friendid2)+"_friendlist", Integer.toString(friendid1));
+//						break;
+//				case 3: TSA3.srem(Integer.toString(friendid2)+"_friendlist", Integer.toString(friendid1));
+//						break;
+//			}
 			
 			
 		}
-		else if(NvmIsUp==2)
+		else if(NvmIsUp1==2)
 		{	
-			int checkTSA=friendid2%4;
-			Jedis currentTSA=null;
-			AtomicBoolean currentDelta = null;
-			AtomicBoolean discardCurrentTSA = null;
+//			int checkTSA=friendid2%4;
+//			Jedis currentTSA=TSA1;
+//			AtomicBoolean currentDelta = deltaTSA0;
+//			AtomicBoolean discardCurrentTSA = discardTSA0;
 			
 			
-			if(checkTSA==0)
-			{
-				currentTSA=TSA0;
-				currentDelta=deltaTSA0;
-				discardCurrentTSA = discardTSA0;
-			}
-			else if(checkTSA==1)
-			{
-				currentTSA=TSA1;
-				currentDelta=deltaTSA1;
-				discardCurrentTSA = discardTSA1;
-			}
-			else if(checkTSA==2)
-			{
-				currentTSA=TSA2;
-				currentDelta=deltaTSA2;
-				discardCurrentTSA = discardTSA2;
-			}
-			else if(checkTSA==3)
-			{
-				currentTSA=TSA3;
-				currentDelta=deltaTSA3;
-				discardCurrentTSA = discardTSA3;
-			}
+//			if(checkTSA==0)
+//			{
+//				currentTSA=TSA0;
+//				currentDelta=deltaTSA0;
+//				discardCurrentTSA = discardTSA0;
+//			}
+//			else if(checkTSA==1)
+//			{
+//				currentTSA=TSA1;
+//				currentDelta=deltaTSA1;
+//				discardCurrentTSA = discardTSA1;
+//			}
+//			else if(checkTSA==2)
+//			{
+//				currentTSA=TSA2;
+//				currentDelta=deltaTSA2;
+//				discardCurrentTSA = discardTSA2;
+//			}
+//			else if(checkTSA==3)
+//			{
+//				currentTSA=TSA3;
+//				currentDelta=deltaTSA3;
+//				discardCurrentTSA = discardTSA3;
+//			}
 			
 			
 			synchronized(this) {
 				if(currentDelta.get()==false)
 				{
 					currentDelta.set(true);
-					currentTSA.sadd("delta", Integer.toString(friendid2) + "_f_remove_"+Integer.toString(friendid1));
+					currentTSA.sadd("delta", "created");
 				}
 			
 			//TSA.sadd(Integer.toString(inviterID), "f_add_"+Integer.toString(inviteeID));
 			}
 			
 			
-			if(currentDelta.get() == true && currentTSA.exists("delta") && discardCurrentTSA.get()==false )
+			if(currentDelta.get() == true && currentTSA.exists("delta") && currentdiscardTSA.get()==false )
 			{
 				currentTSA.sadd("delta", Integer.toString(friendid2) + "_f_remove_"+Integer.toString(friendid1));
-				currentTSA.srem("f_"+Integer.toString(friendid2), Integer.toString(friendid1));
+				if(currentTSA.exists(Integer.toString(friendid2)+"_friendlist"))
+				{
+					currentTSA.srem(Integer.toString(friendid2)+"_friendlist", Integer.toString(friendid1));
+				}
 			}
 			else
 			{
-				discardCurrentTSA.set(true);
+				currentdiscardTSA.set(true);
 			}
 
 		}
 
-		else if(NvmIsUp == 3)
+		else if(NvmIsUp1 == 3)
 		{
-			NVM.del("f_"+Integer.toString(friendid2));
-			NVM.del("p_"+Integer.toString(friendid2));
-			NVM.del(Integer.toString(friendid2));
+			currentNVM.del(Integer.toString(friendid2)+"_friendlist");
+			currentNVM.del(Integer.toString(friendid2)+"_friendcount");
+			currentNVM.del(Integer.toString(friendid2)+"_pendingcount");
+			currentNVM.del(Integer.toString(friendid2)+"_pendinglist");
 		}
 		
 		//---------------Changed By Kaushal on Nov 10---------------//
@@ -1808,19 +2261,22 @@ public class MongoBGClient extends DB {
 class Basic implements Runnable
 {
 	AtomicBoolean failedmode;
+//	Jedis NVM=new Jedis("localhost",6379);
+//	Jedis TSA0=new Jedis("localhost",6380);
+//	Jedis TSA1=new Jedis("localhost",6381);
+//	Jedis TSA2=new Jedis("localhost",6382);
+//	Jedis TSA3=new Jedis("localhost",6383);
 	Jedis NVM=new Jedis("localhost",6379);
-	Jedis TSA0=new Jedis("localhost",6380);
-	Jedis TSA1=new Jedis("localhost",6381);
-	Jedis TSA2=new Jedis("localhost",6382);
-	Jedis TSA3=new Jedis("localhost",6383);
+//	Jedis TSA=MongoBGClient.tsas.get(index)
 	
-	
-	
+
 	
 	List<String> currentlist;
-	public Basic(AtomicBoolean failedmode,List<String> currentlist) {
+	Properties p;
+	public Basic(AtomicBoolean failedmode,List<String> currentlist,Properties p) {
 		this.failedmode = failedmode;
 		this.currentlist=currentlist;
+		this.p=p;
 	}
 //	public void TSA_to_NVM_Transfer()
 //	{	
@@ -1853,21 +2309,21 @@ class Basic implements Runnable
 //		System.out.println("FINSIHED"+System.nanoTime());
 ////		TSA.flushDB();
 //	}
-	public static boolean call_ar_workers(AtomicBoolean failedmode,ArrayList<String> fulllist,int size)
-	{
-		for(int i=0;i<10;i++)
-		{
-			new Thread(new Basic(failedmode,fulllist.subList((size/100)*i,(size/100)*(i+1)))).start();
-		}
-		return true;
-	}
+//	public static boolean call_ar_workers(AtomicBoolean failedmode,ArrayList<String> fulllist,int size)
+//	{
+//		for(int i=0;i<10;i++)
+//		{
+//			new Thread(new Basic(failedmode,fulllist.subList((size/100)*i,(size/100)*(i+1)))).start();
+//		}
+//		return true;
+//	}
 
 	public void threadsection(int x,int y) throws InterruptedException
 	{
 		if(failedmode.get()==false)
 		{
 			failedmode.set(true);
-			System.out.println("YOU CAME HERE BEGIN THREAD SECTION");
+//			System.out.println("YOU CAME HERE BEGIN THREAD SECTION");
 			BackgroundThread BGG=new BackgroundThread(failedmode);
 			Thread bgthread=new Thread(BGG);
 			bgthread.start();
@@ -1893,14 +2349,14 @@ class Basic implements Runnable
 	}
 	
 
-	
-	
 	@Override
 	public void run() {
 		try {
 			if(failedmode.get()==false)
 			{
-				threadsection(10, 20);
+				int x=Integer.parseInt((String) p.getOrDefault("normalmodetime", "10000000"));
+				int y=Integer.parseInt((String) p.getOrDefault("failedmodeduration", "10000000"));
+				threadsection(x, y);
 			}
 			else if(failedmode.get()==true)
 			{
@@ -1920,11 +2376,15 @@ class BackgroundThread implements Runnable
 //	Jedis NVM=new Jedis("localhost",6380);
 //	Jedis TSA=new Jedis("localhost",6379);
 	
-	Jedis NVM=new Jedis("localhost",6379);
-	Jedis TSA0=new Jedis("localhost",6380);
-	Jedis TSA1=new Jedis("localhost",6381);
-	Jedis TSA2=new Jedis("localhost",6382);
-	Jedis TSA3=new Jedis("localhost",6383);
+//	Jedis NVM=new Jedis("localhost",6379);
+//	Jedis TSA0=new Jedis("localhost",6380);
+//	Jedis TSA1=new Jedis("localhost",6381);
+//	Jedis TSA2=new Jedis("localhost",6382);
+//	Jedis TSA3=new Jedis("localhost",6383);
+//	Jedis NVM=MongoBGClient.nvmobjs.get(0);
+	Jedis NVM=null;
+	Jedis TSA0=new Jedis("localhost",6383);
+	Jedis TSA1=new Jedis("localhost",6384);
 	
 	static HashMap<String,ArrayList<String>> hm=new HashMap<>();
 	
@@ -1934,29 +2394,52 @@ class BackgroundThread implements Runnable
 	{
 		Set<String> deltaValues = TSA.smembers("delta");
 		
-		Iterator<String> it = deltaValues.iterator();
+//		Iterator<String> it = deltaValues.iterator();
 		
-		while(it.hasNext())
+		for(String x:deltaValues)
 		{
-			String TSADeltavalues[] = it.next().split("_");
-//			System.out.println("check this value "+Arrays.toString(TSADeltavalues));
-			String profileID1 = TSADeltavalues[0];
-			String listToCheck = TSADeltavalues[1];
-			String action = TSADeltavalues[2];
-			String profileID2 = TSADeltavalues[3];
-			
-			if(action.equals("add") && NVM.exists(listToCheck+"_"+profileID1))
+			if(!x.equals("created"))
 			{
-				NVM.sadd(listToCheck+"_"+profileID1, profileID2);
+				String TSADeltavalues[] = x.split("_");
+	//			System.out.println("check this value "+Arrays.toString(TSADeltavalues));
+				String profileID1 = TSADeltavalues[0];
+				String listToCheck = TSADeltavalues[1];
+				String action = TSADeltavalues[2];
+				String profileID2 = TSADeltavalues[3];
+				
+				int numofnvms=MongoBGClient.numberofnvms;
+				int checkNVM=Integer.parseInt(profileID1)%(numofnvms);
+				for(int i=0;i<numofnvms;i++)
+				{
+					if(checkNVM==i)
+					{
+						NVM=new Jedis("localhost",6379+i);
+						break;
+					}
+				}
+				
+				if(action.equals("add") && listToCheck.equals("f") && NVM.exists(profileID1+"_friendlist"))
+				{
+					NVM.sadd(profileID1+"_friendlist", profileID2);
+				}
+				else if(action.equals("add") && listToCheck.equals("p") && NVM.exists(profileID1+"_pendinglist"))
+				{
+					NVM.sadd(profileID1+"_pendinglist", profileID2);
+				}
+				if(action.equals("remove") && listToCheck.equals("f") && NVM.exists(profileID1+"_friendlist"))
+				{
+					NVM.srem(profileID1+"_friendlist", profileID2);
+				}
+				else if(action.equals("remove") && listToCheck.equals("p") && NVM.exists(profileID1+"_pendinglist"))
+				{
+					NVM.srem(profileID1+"_pendinglist", profileID2);
+				}
 			}
-			else if(action.equals("remove") && NVM.exists(listToCheck+"_"+profileID1))
-			{
-				NVM.srem(listToCheck+"_"+profileID1, profileID2);
-			}
-			
 		}
-		System.out.println("Flushing DB");
+//		System.out.println("Flushing DB");
 		TSA.flushDB();
+		
+		
 	}
 	
 	
@@ -1968,52 +2451,62 @@ class BackgroundThread implements Runnable
 		this.failedmode=failedmode;
 	}
 	
-	public void createHashMap(Set<String> delta)
-	{
-		
-		Iterator<String> it = delta.iterator();
-		
-		while(it.hasNext())
-		{
-			String TSADeltavalues[] = it.next().split("_");
-			String profileID1 = TSADeltavalues[0];
-			String listToCheck = TSADeltavalues[1];
-			String action = TSADeltavalues[2];
-			String profileID2 = TSADeltavalues[3];
-			
-			
-			
-			ArrayList<String> val = new ArrayList<String>();
-			ArrayList<String> actualVal = hm.getOrDefault(profileID1, val);
-			actualVal.add(listToCheck+"_" + action +"_"+ profileID2);
-			hm.put(profileID1, actualVal);
-			
-//			if(action.equals("add"))
-//			{
-//				NVM.sadd(listToCheck+"_"+profileID1, profileID2);
-//			}
-//			else if(action.equals("remove"))
-//			{
-//				NVM.srem(listToCheck+"_"+profileID1, profileID2);
-//			}
-			
-		}
-		
-	}
+//	public void createHashMap(Set<String> delta)
+//	{
+//		
+//		Iterator<String> it = delta.iterator();
+//		
+//		while(it.hasNext())
+//		{
+//			String TSADeltavalues[] = it.next().split("_");
+//			String profileID1 = TSADeltavalues[0];
+//			String listToCheck = TSADeltavalues[1];
+//			String action = TSADeltavalues[2];
+//			String profileID2 = TSADeltavalues[3];
+//			
+//			
+//			
+//			ArrayList<String> val = new ArrayList<String>();
+//			ArrayList<String> actualVal = hm.getOrDefault(profileID1, val);
+//			actualVal.add(listToCheck+"_" + action +"_"+ profileID2);
+//			hm.put(profileID1, actualVal);
+//			
+////			if(action.equals("add"))
+////			{
+////				NVM.sadd(listToCheck+"_"+profileID1, profileID2);
+////			}
+////			else if(action.equals("remove"))
+////			{
+////				NVM.srem(listToCheck+"_"+profileID1, profileID2);
+////			}
+//			
+//		}
+//		
+//	}
 	
 	public void recovery()
 	{
-//		HashSet<Integer> discardKeyEndingWith = new HashSet<Integer>();
-//		if(mongoDB.MongoBGClient.discardTSA0.get()==true)
-//		{
-//			discardKeyEndingWith.add(0);
-//			mongoDB.MongoBGClient.discardTSA0.set(false);
-//			TSA0.flushAll();
-//		}
-//		else
-//		{
-//			updateNVMInRecovery(TSA0);	
-//		}
+		HashSet<Integer> discardKeyEndingWith = new HashSet<Integer>();
+		if(mongoDB.MongoBGClient.discardTSA0.get()==true)
+		{
+			discardKeyEndingWith.add(0);
+			mongoDB.MongoBGClient.discardTSA0.set(false);
+			TSA0.flushAll();
+		}
+		else
+		{
+			updateNVMInRecovery(TSA0);	
+		}
+		if(mongoDB.MongoBGClient.discardTSA1.get()==true)
+		{
+			discardKeyEndingWith.add(1);
+			mongoDB.MongoBGClient.discardTSA1.set(false);
+			TSA1.flushAll();
+		}
+		else
+		{
+			updateNVMInRecovery(TSA1);	
+		}
 //		if(mongoDB.MongoBGClient.discardTSA1.get()==true)
 //		{
 //			discardKeyEndingWith.add(1);
@@ -2045,120 +2538,146 @@ class BackgroundThread implements Runnable
 //			updateNVMInRecovery(TSA3);
 //		}
 		
-		if(MongoBGClient.discardTSA0.get()==false)
+		for(int i=0;i<MongoBGClient.numberofnvms;i++)
 		{
-			Set<String> deltaValues = TSA0.smembers("delta");
-			createHashMap(deltaValues);
-		}
-		if(MongoBGClient.discardTSA1.get()==false)
-		{
-			Set<String> deltaValues = TSA1.smembers("delta");
-			createHashMap(deltaValues);
-		}
-		if(MongoBGClient.discardTSA2.get()==false)
-		{
-			Set<String> deltaValues = TSA2.smembers("delta");
-			createHashMap(deltaValues);
-		}
-		if(MongoBGClient.discardTSA3.get()==false)
-		{
-			Set<String> deltaValues = TSA3.smembers("delta");
-			createHashMap(deltaValues);
-		}
+			Jedis NVMtoclear=new Jedis("localhost",6379+i);
+			Set<String> nvmAllKeys = new HashSet<String>();
 		
-
 		
-		Set<String> nvmAllKeys = new HashSet<String>();
-		
-		nvmAllKeys = NVM.keys("*");
-		
-		Iterator<String> it = nvmAllKeys.iterator();
-		
-		while(it.hasNext())
-		{
-			String nvmKey = it.next();
-			if(!nvmKey.contains("f") && !nvmKey.contains("p") && !nvmKey.contains("HB"))
-			{
-			Jedis currentTSA = null;
-			int checkTSA = Integer.parseInt(nvmKey)%4;
-			AtomicBoolean currentDiscardTsa = new AtomicBoolean(false);
-			if(checkTSA==0)
-			{
-				currentTSA=TSA0;
-				if(MongoBGClient.discardTSA0.get() == true)
-				{
-					currentDiscardTsa.set(true);
-				}
-			}
-			else if(checkTSA==1)
-			{
-				currentTSA=TSA1;
-				if(MongoBGClient.discardTSA1.get() == true)
-				{
-					currentDiscardTsa.set(true);
-				}
-			}
-			else if(checkTSA==2)
-			{
-				currentTSA=TSA2;
-				if(MongoBGClient.discardTSA2.get() == true)
-				{
-					currentDiscardTsa.set(true);
-				}
-			}
-			else if(checkTSA==3)
-			{
-				currentTSA=TSA3;
-				if(MongoBGClient.discardTSA3.get() == true)
-				{
-					currentDiscardTsa.set(true);
-				}
-			}
+			nvmAllKeys = NVMtoclear.keys("*");
 			
 			
-			
-			
-			if(currentDiscardTsa.get()==true && !hm.containsKey(nvmKey))
+			for(String x:nvmAllKeys)
 			{
-				NVM.del(nvmKey);
-				NVM.del("f_"+nvmKey);
-				NVM.del("p_"+nvmKey);
-			}
-			else
-			{
-				ArrayList<String> update = hm.getOrDefault(nvmKey,new ArrayList<>());
-				
-				for (String s:update)
+				if(!x.equals("HB"))
 				{
-					String TSADeltavalues[] = s.split("_");
-					//String profileID1 = TSADeltavalues[0];
-					String listToCheck = TSADeltavalues[0];
-					String action = TSADeltavalues[1];
-					String profileID2 = TSADeltavalues[2];
-					if(action.equals("add"))
+					int actualkey=Integer.parseInt(x.substring(0, x.indexOf("_")));
+					actualkey=actualkey%MongoBGClient.numberoftsas;
+					if(discardKeyEndingWith.contains(actualkey))
 					{
-						NVM.sadd(listToCheck+"_"+nvmKey, profileID2);
+						NVMtoclear.del(x);
 					}
-					else if(action.equals("remove"))
-					{
-						NVM.srem(listToCheck+"_"+nvmKey, profileID2);
-					}
-					
-					
 				}
-				
 			}
 
-			}
-			
 		}
+//		if(MongoBGClient.discardTSA0.get()==true)
+//		{
+//			Set<String> deltaValues = TSA0.smembers("delta");
+//			createHashMap(deltaValues);
+//		}
+//		if(MongoBGClient.discardTSA1.get()==true)
+//		{
+//			Set<String> deltaValues = TSA1.smembers("delta");
+//			createHashMap(deltaValues);
+//		}
+//		if(MongoBGClient.discardTSA2.get()==true)
+//		{
+//			Set<String> deltaValues = TSA2.smembers("delta");
+//			createHashMap(deltaValues);
+//		}
+//		if(MongoBGClient.discardTSA3.get()==true)
+//		{
+//			Set<String> deltaValues = TSA3.smembers("delta");
+//			createHashMap(deltaValues);
+//		}
+//		
+//
+//		
+//		Set<String> nvmAllKeys = new HashSet<String>();
+//		
+//		nvmAllKeys = NVM.keys("*");
+//		
+//		Iterator<String> it = nvmAllKeys.iterator();
+//		
+//		while(it.hasNext())
+//		{
+//			String nvmKey = it.next();
+//			if(!nvmKey.contains("HB"))
+//			{
+//				Jedis currentTSA = null;
+//				int actual_nvm_key=Integer.parseInt(nvmKey.substring(0,nvmKey.indexOf("_")));
+//				int checkTSA = actual_nvm_key%4;
+//				AtomicBoolean currentDiscardTsa = new AtomicBoolean(false);
+//				if(checkTSA==0)
+//				{
+//					currentTSA=TSA0;
+//					if(MongoBGClient.discardTSA0.get() == true)
+//					{
+//						currentDiscardTsa.set(true);
+//					}
+//				}
+//				else if(checkTSA==1)
+//				{
+//					currentTSA=TSA1;
+//					if(MongoBGClient.discardTSA1.get() == true)
+//					{
+//						currentDiscardTsa.set(true);
+//					}
+//				}
+//				else if(checkTSA==2)
+//				{
+//					currentTSA=TSA2;
+//					if(MongoBGClient.discardTSA2.get() == true)
+//					{
+//						currentDiscardTsa.set(true);
+//					}
+//				}
+//				else if(checkTSA==3)
+//				{
+//					currentTSA=TSA3;
+//					if(MongoBGClient.discardTSA3.get() == true)
+//					{
+//						currentDiscardTsa.set(true);
+//					}
+//				}
+//			
+//			
+//			
+//			
+//			if(currentDiscardTsa.get()==true && !hm.containsKey(nvmKey))
+//			{
+//				NVM.del(nvmKey);
+//				NVM.del("f_"+nvmKey);
+//				NVM.del("p_"+nvmKey);
+//			}
+//			else
+//			{
+//				ArrayList<String> update = hm.getOrDefault(nvmKey,new ArrayList<>());
+//				
+//				for (String s:update)
+//				{
+//					String TSADeltavalues[] = s.split("_");
+//					//String profileID1 = TSADeltavalues[0];
+//					String listToCheck = TSADeltavalues[0];
+//					String action = TSADeltavalues[1];
+//					String profileID2 = TSADeltavalues[2];
+//					if(action.equals("add"))
+//					{
+//						NVM.sadd(listToCheck+"_"+nvmKey, profileID2);
+//					}
+//					else if(action.equals("remove"))
+//					{
+//						NVM.srem(listToCheck+"_"+nvmKey, profileID2);
+//					}
+//					
+//					
+//				}
+//				
+//			}
+
+//			}
+			
+//		}
 		MongoBGClient.discardTSA0.set(false);
 		MongoBGClient.discardTSA1.set(false);
-		MongoBGClient.discardTSA2.set(false);
-		MongoBGClient.discardTSA3.set(false);
+//		MongoBGClient.discardTSA2.set(false);
+//		MongoBGClient.discardTSA3.set(false);
 		
-		
-		
+		MongoBGClient.isRecovery1=true;
+//		
+//		
+//		
 		
 		
 	}
@@ -2167,15 +2686,17 @@ class BackgroundThread implements Runnable
 	@Override
 	public void run() {
 		// TODO Auto-generated method stub
+			Jedis NVM=new Jedis("localhost",6379);
 		 try
 	        {
 	        	while(true) {
+	        		
 	        		String HBVal=NVM.get("HB");
 	        		  //System.out.println("Val" + val + "NVM"+isNVM);
-	        		if(HBVal.equals("ON") && MongoBGClient.NvmIsUp==2) {
+	        		if(HBVal.equals("ON") && MongoBGClient.NvmIsUp1==2) {
 	        			
-	        			System.out.println(MongoBGClient.NvmIsUp + "Switched to Recovery");
-	        			MongoBGClient.NvmIsUp=3;
+	        			System.out.println(MongoBGClient.NvmIsUp1 + "Switched to Recovery");
+	        			MongoBGClient.NvmIsUp1=3;
 	        			//HashSet<String> getallkeys=(HashSet<String>) TSA.keys("*");
 	        			//ArrayList<String> fulllist=new ArrayList<>(getallkeys);
 	        			//int size=fulllist.size();
@@ -2185,14 +2706,14 @@ class BackgroundThread implements Runnable
 	        			recovery();
 	        			
 	        		}
-	        		else if(HBVal.equals("ON") && MongoBGClient.isRecovery==true) {
-	        			System.out.println(MongoBGClient.NvmIsUp + "Switched to Normal after recovery complete");
-	        			MongoBGClient.NvmIsUp=1;
+	        		else if(HBVal.equals("ON") && MongoBGClient.isRecovery1==true) {
+//	        			System.out.println(MongoBGClient.NvmIsUp + "Switched to Normal after recovery complete");
+	        			MongoBGClient.NvmIsUp1=1;
 	        		}
 	        		else if (HBVal.equals("OFF")) {
 	        			//isFailure started - setup
 	        			//System.out.println("In failed mode");
-	        			MongoBGClient.NvmIsUp=2;
+	        			MongoBGClient.NvmIsUp1=2;
 	        		}
 	        	
 	        	}
