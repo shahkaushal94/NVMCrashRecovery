@@ -66,9 +66,7 @@ public class MongoBGClient extends DB {
 
 	Properties p=getProperties();
 	
-	int numberofnvms=Integer.parseInt(p.getProperty("numberofnvms"));
-	int numberoftsas=Integer.parseInt(p.getProperty("numberoftsa"));
-	
+	static int numberofnvms,numberoftsas;	
 	
 	
 	
@@ -77,6 +75,9 @@ public class MongoBGClient extends DB {
 	
 	Jedis NVM2=new Jedis("localhost",6381);
 	Jedis TSA2=new Jedis("localhost",6382);
+	
+	Jedis NVM3=new Jedis("localhost",6383);
+	Jedis TSA3=new Jedis("localhost",6384);
 	
 //	Jedis NVM=new Jedis("localhost",6379);
 //	Jedis TSA0=new Jedis("localhost",6380);
@@ -93,6 +94,7 @@ public class MongoBGClient extends DB {
 //	Jedis TSA=pool1.getResource();
 	static volatile int NvmIsUp1=1;
 	static volatile int NvmIsUp2=1;
+	static volatile int NvmIsUp3=1;
 	static volatile AtomicBoolean failedmode1=new AtomicBoolean(false);
 	static volatile AtomicBoolean failedmode2=new AtomicBoolean(false);
 	boolean NVMinRecovery1=false;
@@ -103,13 +105,13 @@ public class MongoBGClient extends DB {
 	
 	static volatile AtomicBoolean deltaTSA0 = new AtomicBoolean(false);
 	static volatile AtomicBoolean deltaTSA1 = new AtomicBoolean(false);
-//	static volatile AtomicBoolean deltaTSA2 = new AtomicBoolean(false);
+	static volatile AtomicBoolean deltaTSA2 = new AtomicBoolean(false);
 //	static volatile AtomicBoolean deltaTSA3 = new AtomicBoolean(false);
 	
 
 	static volatile AtomicBoolean discardTSA0 = new AtomicBoolean(false);
 	static volatile AtomicBoolean discardTSA1 = new AtomicBoolean(false);
-//	static volatile AtomicBoolean discardTSA2 = new AtomicBoolean(false);
+	static volatile AtomicBoolean discardTSA2 = new AtomicBoolean(false);
 //	static volatile AtomicBoolean discardTSA3 = new AtomicBoolean(false);
 	
 //	Properties p=getProperties();
@@ -186,10 +188,12 @@ public class MongoBGClient extends DB {
 			currentNVM=NVM2;
 			currentNVMisUp=NvmIsUp2;
 		}
-//		else if(checkTSA==2)
-//		{	//System.out.println("Third TSA " + checkTSA);
-//			currentTSA=TSA2;
-//		}
+		else
+		{	
+			currentTSA=TSA3;
+			currentNVM=NVM3;
+			currentNVMisUp=NvmIsUp3;
+		}
 //		else if(checkTSA==3)
 //		{	//System.out.println("Fourth TSA " + checkTSA);
 //			currentTSA=TSA3;
@@ -591,7 +595,7 @@ public class MongoBGClient extends DB {
 		if(checkTSA==0)
 		{	 
 			currentTSA=TSA1;
-			currentNVM=NVM1;
+			currentNVM=NVM1; 
 			currentNVMisUp=NvmIsUp1;
 		}
 		else if(checkTSA==1)
@@ -600,10 +604,12 @@ public class MongoBGClient extends DB {
 			currentNVM=NVM2;
 			currentNVMisUp=NvmIsUp2;
 		}
-//		else if(checkTSA==2)
-//		{	
-//			currentTSA=TSA2;
-//		}
+		else
+		{	
+			currentTSA=TSA3;
+			currentNVM=NVM3;
+			currentNVMisUp=NvmIsUp3;
+		}
 //		else if(checkTSA==3)
 //		{	
 //			currentTSA=TSA3;
@@ -987,6 +993,9 @@ public class MongoBGClient extends DB {
 		Properties p = getProperties();
 		NVM1.set("HB", "ON");
 //		NVM2.set("HB", "ON");
+		numberofnvms=Integer.parseInt(p.getProperty("numberofnvms"));
+		numberoftsas=Integer.parseInt(p.getProperty("numberoftsa"));
+
 //		int faileddurationtime=Integer.parseInt(p.getProperty("failedmodeduration"));
 //		int normalmodetime=Integer.parseInt(p.getProperty("normalmodetime"));
 		
@@ -1004,7 +1013,7 @@ public class MongoBGClient extends DB {
 				first_time1.set(false);
 			}
 		}
-//		
+//		 
 //		int x=10;
 //		int y=20;
 		try{
@@ -1123,6 +1132,14 @@ public class MongoBGClient extends DB {
 			currentNVMisup=NvmIsUp2; 
 			currentDelta=deltaTSA1;
 			discardCurrentTSA=discardTSA1;
+		}
+		else
+		{
+			currentNVM=NVM3;
+			currentTSA=TSA3;
+			currentNVMisup=NvmIsUp3; 
+			currentDelta=deltaTSA2;
+			discardCurrentTSA=discardTSA2;
 		}
 		if(currentNVMisup==1 && currentNVM.exists(Integer.toString(inviterID)+"_friendlist"))
 		{
@@ -1338,6 +1355,14 @@ public class MongoBGClient extends DB {
 			currentDelta=deltaTSA1;
 			discardCurrentTSA=discardTSA1;
 		}
+		else
+		{
+			currentNVM=NVM3;
+			currentTSA=TSA3;
+			currentNVMisup=NvmIsUp3; 
+			currentDelta=deltaTSA2;
+			discardCurrentTSA=discardTSA2;
+		}
 		
 		
 
@@ -1490,6 +1515,14 @@ public class MongoBGClient extends DB {
 			currentDelta=deltaTSA1;
 			discardCurrentTSA=discardTSA1;
 		}
+		else
+		{
+			currentNVM=NVM3;
+			currentTSA=TSA3;
+			currentNVMisup=NvmIsUp3; 
+			currentDelta=deltaTSA2;
+			discardCurrentTSA=discardTSA2;
+		}
 		
 		
 		//---------------Changed By Kaushal on Nov 10---------------//
@@ -1619,6 +1652,14 @@ public class MongoBGClient extends DB {
 			currentNVMisup=NvmIsUp2;
 			currentDelta=deltaTSA1;
 			discardCurrentTSA=discardTSA1;
+		}
+		else
+		{
+			currentNVM=NVM3;
+			currentTSA=TSA3;
+			currentNVMisup=NvmIsUp3; 
+			currentDelta=deltaTSA2;
+			discardCurrentTSA=discardTSA2;
 		}
 		
 		
@@ -1781,6 +1822,14 @@ public class MongoBGClient extends DB {
 			currentDelta=deltaTSA1;
 			discardCurrentTSA=discardTSA1;
 		}
+		else
+		{
+			currentNVM=NVM3;
+			currentTSA=TSA3;
+			currentNVMisup=NvmIsUp3; 
+			currentDelta=deltaTSA2;
+			discardCurrentTSA=discardTSA2;
+		}
 		
 		
 		
@@ -1907,6 +1956,14 @@ public class MongoBGClient extends DB {
 			currentNVMisup=NvmIsUp2;
 			currentDelta=deltaTSA1;
 			discardCurrentTSA=discardTSA1;
+		}
+		else
+		{
+			currentNVM=NVM3;
+			currentTSA=TSA3;
+			currentNVMisup=NvmIsUp3; 
+			currentDelta=deltaTSA2;
+			discardCurrentTSA=discardTSA2;
 		}
 		
 		
